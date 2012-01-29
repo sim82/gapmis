@@ -1,0 +1,82 @@
+ONE_TO_ONE
+max_score: -4.000000
+min_gap: 7
+where: 2
+gap_pos: 58
+num_mis: 82
+
+
+ONE_TO_MANY
+max_score: 639.000000
+min_gap: 5
+where: 1
+gap_pos: 142
+num_mis: 8
+ONE_TO_MANY
+max_score: -4.000000
+min_gap: 7
+where: 2
+gap_pos: 58
+num_mis: 82
+ONE_TO_MANY
+max_score: -108.000000
+min_gap: 95
+where: 1
+gap_pos: 6
+num_mis: 31
+
+
+0 MANY_TO_MANY
+max_score: 639.000000
+min_gap: 5
+where: 1
+gap_pos: 142
+num_mis: 8
+1 MANY_TO_MANY
+max_score: -4.000000
+min_gap: 7
+where: 2
+gap_pos: 58
+num_mis: 82
+2 MANY_TO_MANY
+max_score: -108.000000
+min_gap: 95
+where: 1
+gap_pos: 6
+num_mis: 31
+3 MANY_TO_MANY
+max_score: -16.000000
+min_gap: 9
+where: 2
+gap_pos: 66
+num_mis: 77
+4 MANY_TO_MANY
+max_score: 118.000000
+min_gap: 1
+where: 2
+gap_pos: 23
+num_mis: 63
+5 MANY_TO_MANY
+max_score: -40.000000
+min_gap: 25
+where: 1
+gap_pos: 10
+num_mis: 64
+6 MANY_TO_MANY
+max_score: -36.000000
+min_gap: 79
+where: 1
+gap_pos: 8
+num_mis: 17
+7 MANY_TO_MANY
+max_score: -6.000000
+min_gap: 47
+where: 1
+gap_pos: 26
+num_mis: 35
+8 MANY_TO_MANY
+max_score: -45.000000
+min_gap: 16
+where: 1
+gap_pos: 14
+num_mis: 60

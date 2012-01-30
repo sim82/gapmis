@@ -156,7 +156,7 @@ int main ( int argc, char ** argv)
     }
    
    /* computes the optimal alignment based on the matrix score and the gap function */
-   opt_solution ( G, H, n, m, MAXgap, gap_open_pen, gap_extend_pen, &MAXscore, &MINgap, &where, &start );
+   opt_solution ( G, n, m, MAXgap, gap_open_pen, gap_extend_pen, &MAXscore, &MINgap, &where, &start );
    
    
    /* computes the position of the gap */

@@ -47,7 +47,7 @@ unsigned int i_limits ( unsigned int n, unsigned int m, unsigned int * up, unsig
 
 unsigned int j_limits ( unsigned int i, unsigned int m, unsigned int * left, unsigned int * right, unsigned int MAXgap );
 
-unsigned int opt_solution ( double ** G, unsigned int ** H, unsigned int n, unsigned int m, unsigned int MAXgap, double gap_open_penalty, double gap_extend_penalty, double * MAXscore, unsigned int * MINgap, unsigned int * where, unsigned int * start );
+unsigned int opt_solution ( double ** G, unsigned int n, unsigned int m, unsigned int MAXgap, double gap_open_penalty, double gap_extend_penalty, double * MAXscore, unsigned int * MINgap, unsigned int * where, unsigned int * start );
 
 double total_scoring ( unsigned int gap, double current_score, double gap_open_penalty, double gap_extend_penalty );
 

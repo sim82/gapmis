@@ -233,19 +233,17 @@ unsigned int dp_algorithm ( double ** G, unsigned int ** H, char * t, unsigned i
 	unsigned int i;
 	unsigned int j;
 	double matching_score;
+	unsigned int j_min;
+	unsigned int j_max;
 
-	for(i = 0; i < n + 1 ; i++)
-		for(j = 0; j < m + 1 ; j++)
-		{
-			H[i][0] = i;
-			H[0][j] = j;
-		}
+	for( i = 0; i < n + 1 ; i++ )	H[i][0] = i;
+	for( j = 0; j < m + 1 ; j++ )	H[0][j] = j;
 
-	for( i = 1; i <= n ; i++)		
+	for( i = 1; i < n + 1; i++ )		
         {
-                unsigned int j_min = max ( 1, (int) ( i - MAXgap ));
-                unsigned int j_max = min ( m, (int) ( i + MAXgap ));
-		for( j = j_min; j <= j_max; j++)
+                j_min = max ( 1, (int) ( i - MAXgap ));
+                j_max = min ( m, (int) ( i + MAXgap ));
+		for( j = j_min; j <= j_max; j++ )
 		{
 
 			matching_score = ( matrix ? (double) pro_delta( t[i - 1], p[j - 1] ) : (double) nuc_delta( t[i - 1], p[j - 1] ) ) ;
@@ -497,7 +495,6 @@ Computes the optimal alignment using matrix G in O(2*MAXgap+1) time
 Note:	double gap_open_penalty, double gap_extend_penalty, double gap_open_offset_penalty are arguments given by the user to represent the gap penalty.
 */
 unsigned int opt_solution ( 	double** G, 
-				unsigned int** H, 
 				unsigned int n, 
 				unsigned int m, 
 				unsigned int MAXgap, 

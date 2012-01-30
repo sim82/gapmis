@@ -1,15 +1,18 @@
 GapMis: a tool for pairwise sequence alignment.
 
-This repository is divided in 4 branches:
-1. gapmis
+This repository is divided in 5 branches:
+1. master
+   an empty branch consisting only of this README. All other branches originate from here.
+
+2. gapmis
    GapMis -- the standalone, open-source toolkit.
 
-2. libgapmis
+3. libgapmis
    A library of API functions.
 
-3. libgapmis_vec
+4. libgapmis_vec
    A multi-threading library optimised for the SSE3 instruction set.
 
-4. libgapmis_gpu
+5. libgapmis_gpu  (not yet created)
    A multi-threading library which makes use of the GPU.
 

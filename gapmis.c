@@ -10,12 +10,109 @@
 #define PRO_SCORING_MATRIX_SIZE         24		
 #define ERR                             24      //error number returned if char_to_index returns an invalid index
 
+/* Computes the optimal semi-global alignment with the maximum score between each pattern p and all texts t */
+unsigned int gapmis_many_to_many_opt ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
+ {
+   for ( ; *p; ++ p, ++out )
+    {
+      gapmis_one_to_many_opt ( *p, t, in, out );
+    }
+
+   return ( 1 );
+ }
+
+/* Computes the optimal semi-global alignment with the maximum score between a pattern p and all texts t */
+unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
+ {
+   double       tmp_scr     = -DBL_MAX;
+   double       scr         = 0;
+   unsigned int i           = 0;
+   unsigned int max_t       = 0;
+   const char   ** Tmp      = t;	
+	
+   for ( ; *Tmp; ++Tmp, ++ i )
+    {
+      gapmis_one_to_one_scr ( p, *Tmp, in, &scr );
+      if ( scr > tmp_scr )
+       {
+         max_t = i;
+         tmp_scr = scr;
+       } 
+    } 
+   
+   gapmis_one_to_one ( p, t[ max_t ], in, out );
+
+   return ( 1 );
+ }
+
+/* Computes the score of the optimal semi-global alignment between pattern p and text t */
+unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struct gapmis_params * in, double * scr )
+ {
+   int               ** G; 		//dynamic programming matrix
+   unsigned int         n;
+   unsigned int         m;
+   unsigned int         i;
+
+   /* Checks the input parameters */
+   n = strlen ( t );
+   m = strlen ( p );
+   if ( m > n )
+    {
+      fprintf ( stderr, "Error: the length of p should be less or equal to the length of t!!!\n" );
+      return ( 0 );
+    }
+   
+   if ( in -> scoring_matrix > 1 )
+    {
+      fprintf ( stderr, "Error: the value of the scoring matrix parameter should be either 0 (nucleotide sequences) or 1 (protein sequences)!!!\n" );
+      return ( 0 );
+    }
+
+   if ( in -> max_gap >= n )
+    {
+      fprintf ( stderr, "Error: the value of the max gap parameter should be less than the length of t!!!\n" );
+      return ( 0 );
+    }
+
+   /* 2d dynamic memory allocation for matrices G and H*/
+   if ( ! ( G = ( int ** ) malloc ( ( n + 1 ) * sizeof ( int * ) ) ) )
+    {
+      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      return ( 0 );
+    } 
+   
+   if ( ! ( G[0] = ( int * ) calloc ( ( n + 1 ) * ( m + 1 ), sizeof ( int ) ) ) )
+    {
+      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      return ( 1 );
+    } 
+   
+   for ( i = 1; i < n + 1; ++ i )
+     G[i] = ( void * ) G[0] + i * ( m + 1 ) * sizeof ( int );
+     
+   /* dynamic programming algorithm */
+   if ( ! ( dp_algorithm_scr( G, t, n, p, m, in ) ) )
+    {
+      fprintf ( stderr, "Error: dp_algorithm_scr() failed!!!\n" );
+      return ( 0 );	
+    }
+   
+   /* computes the optimal alignment based on the matrix score and the gap function */
+   opt_solution_scr ( G, n, m, in, scr );
+   
+   free ( G[0] );
+   free ( G );	
+   return ( 1 );
+   
+ } 
+
+/* Computes the optimal semi-global alignment between each pattern p and all texts t */
 unsigned int gapmis_many_to_many ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
    
    unsigned int         stride = 0;
    const char        ** Tmp;
-   for ( Tmp = t; *Tmp; ++ Tmp, ++ stride );  //Counting the number of texts
+   for ( Tmp = t; *Tmp; ++ Tmp, ++ stride );  //counting the total number of texts
 
    for ( ; *p; ++ p, out += stride )
     {
@@ -25,6 +122,7 @@ unsigned int gapmis_many_to_many ( const char const ** p, const char const ** t,
    return ( 1 );
  }
 
+/* Computes the optimal semi-global alignment between a pattern p and all texts t */
 unsigned int gapmis_one_to_many ( const char * p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
    for ( ; *t; ++ t, ++ out )
@@ -35,6 +133,7 @@ unsigned int gapmis_one_to_many ( const char * p, const char const ** t, const s
    return ( 1 );
  }
 
+/* Computes the optimal semi-global alignment between pattern p and text t */
 unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct gapmis_params * in, struct gapmis_align * out )
  {
    int               ** G; 		//dynamic programming matrix
@@ -104,7 +203,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
     }
    
    /* computes the optimal alignment based on the matrix score and the gap function */
-   opt_solution ( G, H, n, m, in, out, &start );
+   opt_solution ( G, n, m, in, out, &start );
    
    /* computes the position of the gap */
    if ( out -> min_gap > 0 ) 
@@ -133,21 +232,18 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
    unsigned int         i;
    unsigned int         j;
    int                  matching_score;
+   unsigned int 	j_min;
+   unsigned int 	j_max;
 
-   for ( i = 0; i < n + 1 ; ++ i )
-     for ( j = 0; j < m + 1 ; ++ j )
-      {
-        H[i][0] = i;
-        H[0][j] = j;
-      }
-     
-     for ( i = 1; i <= n ; ++ i )
-      {
-        unsigned int j_min = max ( 1, ( int ) ( i - in -> max_gap ) );
-        unsigned int j_max = min ( m, ( int ) ( i + in -> max_gap ) );
+   for( i = 0; i < n + 1 ; i++ )      H[i][0] = i;
+   for( j = 0; j < m + 1 ; j++ )      H[0][j] = j;
 
-        for ( j = j_min; j <= j_max; ++ j )
-         {
+   for( i = 1; i < n + 1; i++)
+     {
+       j_min = max ( 1, (int) ( i - in -> max_gap ));
+       j_max = min ( m, (int) ( i + in -> max_gap ));
+       for( j = j_min; j <= j_max; j++ )
+        {
            matching_score = ( in -> scoring_matrix ? ( int ) pro_delta( t[i - 1], p[j - 1] ) : ( int ) nuc_delta( t[i - 1], p[j - 1] ) );
            if ( matching_score == ERR ) return ( 0 );
 
@@ -193,32 +289,60 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
    return ( 1 );
  }
 
-
-/* Computes the number of mismatches */
-static unsigned int num_mismatch ( const char * seqa, unsigned int seqa_len, const char * seqb, unsigned int seqb_len, struct gapmis_align * out )
+/* The dynamic programming algorithm for calculating matrix G */
+static unsigned int dp_algorithm_scr ( int ** G, const char * t, unsigned int n, const char * p, unsigned int m, const struct gapmis_params * in )
  {
-   unsigned int i;
-   unsigned int min_mis = 0;
+   int                  gap;
+   int                  mis;
+   unsigned int         i;
+   unsigned int         j;
+   int                  matching_score;
+   unsigned int 	j_min;
+   unsigned int 	j_max;
 
-   if ( out -> min_gap > 0 )
-    {
-      for ( i = 0; i < out -> gap_pos; ++ i )
-        if ( seqa[i] != seqb[i] ) ++ min_mis;
+   for( i = 1; i < n + 1; i++)
+     {
+       j_min = max ( 1, (int) ( i - in -> max_gap ));
+       j_max = min ( m, (int) ( i + in -> max_gap ));
+       for( j = j_min; j <= j_max; j++ )
+        {
+           matching_score = ( in -> scoring_matrix ? ( int ) pro_delta( t[i - 1], p[j - 1] ) : ( int ) nuc_delta( t[i - 1], p[j - 1] ) );
+           if ( matching_score == ERR ) return ( 0 );
 
-      for ( ; i < seqb_len - out -> min_gap && i < seqa_len ; ++ i )
-        if ( seqa[i] != seqb[i + out -> min_gap] ) ++ min_mis;
-    }
-   else
-    {
-      for ( i = 0; i < seqa_len; ++ i )
-        if ( seqa[i] != seqb[i] ) ++ min_mis;
-    }	
-   out -> num_mis = min_mis;
-
+           if ( i < j )
+            {
+              if ( t[i - 1] == p[j - 1] )
+               {
+                 G[i][j] = G[i - 1][j - 1] + matching_score;
+               }
+              else
+               {	
+                 mis = G[i - 1][j - 1] + matching_score;
+                 gap = G[i][i];
+                 G[i][j] = max ( mis, gap );
+               }
+             }
+            else if ( i > j )
+             {
+               if ( t[i - 1] == p[j - 1] )
+                {
+                  G[i][j] = G[i - 1][j - 1] + matching_score;
+                }
+               else
+                {	
+                  mis = G[i - 1][j - 1] + matching_score;
+                  gap = G[j][j];
+                  G[i][j] = max ( mis, gap );
+                }
+             }
+            else if ( i == j )
+             {
+               G[i][j] = G[i - 1][j - 1] + matching_score;
+             }
+         }
+      }
    return ( 1 );
  }
-
-
 
 /* Returns the score for matching character a and b based on EDNAFULL matrix */
 static int nuc_delta ( char a, char b )
@@ -390,20 +514,8 @@ static unsigned int pro_char_to_index ( char a )
    return ( index );
  }
 
-/* Computes the limits of the i-th coordinate for the matrix G in constant time */
-static unsigned int i_limits ( unsigned int n, unsigned int m, unsigned int * up, unsigned int * down, unsigned int max_gap )
- {
-   if ( ( int ) m - ( int ) max_gap < 0 )  (* up )    = 0;
-   else                                (* up )    = m - max_gap;
-   if ( m + max_gap > n )              (* down )  = n;
-   else                                (* down )  = m + max_gap;
-
-   return ( 0 );
- }
-
 /* Computes the optimal alignment using matrix G */
 static unsigned int opt_solution ( int ** G, 
-                                   unsigned int ** H, 
                                    unsigned int n, 
                                    unsigned int m, 
                                    const struct gapmis_params * in,
@@ -468,6 +580,69 @@ static unsigned int opt_solution ( int ** G,
    return ( 1 );
  }
 
+/* Computes the optimal alignment using matrix G */
+static unsigned int opt_solution_scr ( int ** G, unsigned int n, unsigned int m, const struct gapmis_params * in, double * scr )
+ {
+   unsigned int         i;
+   double               score = -DBL_MAX;
+   unsigned int         up    = 0;
+   unsigned int         down  = 0;
+   
+   i_limits ( n, m, &up, &down, in -> max_gap );			
+
+   for ( i = up ; i <= down ; i++ )
+    {
+      double temp_score = 0.0;
+      if ( i < m )
+       {
+         if ( m - i <= in -> max_gap )
+          {
+            temp_score = total_scoring ( m - i, G[i][m], - in -> gap_open_pen, - in -> gap_extend_pen );
+          }
+       }
+      else if ( i > m )
+       {
+         if ( i - m <= in -> max_gap )
+          {
+            temp_score = total_scoring( i - m, G[i][m], - in -> gap_open_pen, - in -> gap_extend_pen );        
+          }
+       }
+      else if ( i == m )
+       {
+         temp_score = total_scoring( 0, G[i][m], - in -> gap_open_pen, - in -> gap_extend_pen );
+       }
+      if (  temp_score > score )
+       {
+         score            = temp_score;
+         ( * scr ) = score;
+       }
+    }
+
+   return ( 1 );
+ }
+
+/* Computes the limits of the i-th coordinate for the matrix G in constant time */
+static unsigned int i_limits ( unsigned int n, unsigned int m, unsigned int * up, unsigned int * down, unsigned int max_gap )
+ {
+   if ( ( int ) m - ( int ) max_gap < 0 )  (* up )    = 0;
+   else                                (* up )    = m - max_gap;
+   if ( m + max_gap > n )              (* down )  = n;
+   else                                (* down )  = m + max_gap;
+
+   return ( 0 );
+ }
+
+
+/*
+Gives the total score of an alignment in constant time
+Note: double matrix_score is the value of G[i][m], i.e. the score of an alignment WITHOUT the gap penalties
+*/
+static double total_scoring( unsigned int gap, double matrix_score, double gap_open_penalty, double gap_extend_penalty )
+ {
+   return ( matrix_score + ( ( gap > 0 ) ? ( gap - 1 ) * gap_extend_penalty + gap_open_penalty : 0 ) );
+ }
+
+
 /* Gives the position of the gap in O(m) time */
 static unsigned int backtracing ( unsigned int ** H, unsigned int m, unsigned int n, unsigned int start, struct gapmis_align * out )
  {
@@ -499,13 +674,28 @@ static unsigned int backtracing ( unsigned int ** H, unsigned int m, unsigned in
    return ( 1 );
  }
 
-/*
-Gives the total score of an alignment in constant time
-Note: double matrix_score is the value of G[i][m], i.e. the score of an alignment WITHOUT the gap penalties
-*/
-static double total_scoring( unsigned int gap, double matrix_score, double gap_open_penalty, double gap_extend_penalty )
+/* Computes the number of mismatches */
+static unsigned int num_mismatch ( const char * seqa, unsigned int seqa_len, const char * seqb, unsigned int seqb_len, struct gapmis_align * out )
  {
-   return ( matrix_score + ( ( gap > 0 ) ? ( gap - 1 ) * gap_extend_penalty + gap_open_penalty : 0 ) );
+   unsigned int i;
+   unsigned int min_mis = 0;
+
+   if ( out -> min_gap > 0 )
+    {
+      for ( i = 0; i < out -> gap_pos; ++ i )
+        if ( seqa[i] != seqb[i] ) ++ min_mis;
+
+      for ( ; i < seqb_len - out -> min_gap && i < seqa_len ; ++ i )
+        if ( seqa[i] != seqb[i + out -> min_gap] ) ++ min_mis;
+    }
+   else
+    {
+      for ( i = 0; i < seqa_len; ++ i )
+        if ( seqa[i] != seqb[i] ) ++ min_mis;
+    }	
+   out -> num_mis = min_mis;
+
+   return ( 1 );
  }
 
 /* used only in main function */
@@ -517,9 +707,10 @@ static void print ( const char * label, struct gapmis_align * out )
 int main ( int argc, char * argv [] )
  {
    unsigned int                 i, j;
+   double		        scr;
    struct gapmis_params         in;
    struct gapmis_align          out;
-   struct gapmis_align          out_arr[6];
+   struct gapmis_align          out_arr[3];
    struct gapmis_align          out_arr2[9];
 
    const char * p1 = "AAACCCTGCTATAGTCAGTGTGAGACGAACGCATAAAGGAAAGATGTTACAGCCCGTCTGACCTTCAGAGGCTTTATCGCGGACGTAAACCCTATACAGGATCCCAACCTGTATTTATCTTCTCATTGGGAGGAACACGTGGGCAGACTA";
@@ -532,7 +723,7 @@ int main ( int argc, char * argv [] )
 
    const char * t3 = "ACAACCCTTAGACCGTGATGTATATCCTCATGGACAACGGGTTAATCGGAAACATGATCAGCGTCGGCCCCATAGGTATTTTCGAGCGTAAACCATATAACCGGATACGCACGACTACACCTGTATTGCGTCTCTGGGGAATCAGAGGAACGAGGGCAACTA";
 
-   const char * texts[] = { t1, t2, t3, NULL };
+   const char * texts[] = { t2, t1, t3, NULL };
    const char * pats[]  = { p1, p2, p3, NULL };
 
    in . max_gap        = strlen ( t2 ) - 1;
@@ -559,6 +750,23 @@ int main ( int argc, char * argv [] )
        printf ( "%d ", i * 3 + j );
        print ( "MANY_TO_MANY\n", &out_arr2[i * 3 + j] );
      }
+   printf ( "\n\n" );
+
+   /* ONE_TO_ONE_SCR test */
+   gapmis_one_to_one_scr ( p1, t2, &in, &scr );
+   printf ( "ONE_TO_ONE_SCR\n%lf", scr );
+   printf ( "\n\n" );
+
+   /* ONE_TO_MANY_OPT test */
+   gapmis_one_to_many_opt ( p1, texts, &in, &out );
+   print ( "ONE_TO_MANY_OPT\n", &out );
+   printf ( "\n\n" );
+
+   /* MANY_TO_MANY_OPT test */
+   gapmis_many_to_many_opt ( pats, texts, &in, out_arr );
+   for ( i = 0; i < 3; ++ i )
+     print ( "MANY_TO_MANY_OPT\n", &out_arr[i] );
+   printf ( "\n\n" );
 
    return ( 0 );
  }

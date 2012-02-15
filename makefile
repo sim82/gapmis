@@ -3,7 +3,7 @@ OBJ = $(SRC:.c=.o)
 CC  = gcc
 
 CFLAGS = -Wall
-OFLAGS = 
+OFLAGS = -msse3 -O2 -fomit-frame-pointer -funroll-loops  
 
 all: gapmis
 

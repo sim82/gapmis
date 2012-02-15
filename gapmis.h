@@ -21,7 +21,7 @@ struct gapmis_align
    unsigned int         num_mis;
  };
 
-/* Computes the score of the optimal semi-global alignment between pattern p and text t */
+/* Computes only the maximum score of the optimal semi-global alignment between pattern p and text t */
 unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struct gapmis_params * in, double* scr );
 
 /* Computes the optimal semi-global alignment with the maximum score between a pattern p and all texts t */

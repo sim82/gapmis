@@ -30,7 +30,7 @@ unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, con
    unsigned int max_t       = 0;
    const char   ** Tmp      = t;	
 	
-   for ( ; *Tmp; ++Tmp, ++ i )
+   for ( ; *Tmp; ++Tmp, ++ i )	//computing the maximum score
     {
       gapmis_one_to_one_scr ( p, *Tmp, in, &scr );
       if ( scr > tmp_scr )
@@ -40,12 +40,12 @@ unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, con
        } 
     } 
    
-   gapmis_one_to_one ( p, t[ max_t ], in, out );
+   gapmis_one_to_one ( p, t[ max_t ], in, out ); //computing the rest of the alignment with the maximum score
 
    return ( 1 );
  }
 
-/* Computes the score of the optimal semi-global alignment between pattern p and text t */
+/* Computes only the maximum score of the optimal semi-global alignment between pattern p and text t */
 unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struct gapmis_params * in, double * scr )
  {
    int               ** G; 		//dynamic programming matrix
@@ -234,11 +234,15 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
    int                  matching_score;
    unsigned int 	j_min;
    unsigned int 	j_max;
+   unsigned int 	valM;
+   unsigned int 	i_max;
 
    for( i = 0; i < n + 1 ; i++ )      H[i][0] = i;
    for( j = 0; j < m + 1 ; j++ )      H[0][j] = j;
 
-   for( i = 1; i < n + 1; i++)
+   i_max = min ( n, m + in -> max_gap );
+
+   for( i = 1; i < i_max + 1; i++)
      {
        j_min = max ( 1, (int) ( i - in -> max_gap ));
        j_max = min ( m, (int) ( i + in -> max_gap ));
@@ -247,49 +251,27 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
            matching_score = ( in -> scoring_matrix ? ( int ) pro_delta( t[i - 1], p[j - 1] ) : ( int ) nuc_delta( t[i - 1], p[j - 1] ) );
            if ( matching_score == ERR ) return ( 0 );
 
-           if ( i < j )
-            {
-              if ( t[i - 1] == p[j - 1] )
-               {
-                 G[i][j] = G[i - 1][j - 1] + matching_score;
-                 H[i][j] = 0;
-               }
-              else
-               {	
-                 mis = G[i - 1][j - 1] + matching_score;
-                 gap = G[i][i];
+           mis = G[i - 1][j - 1] + matching_score;
+	   H[i][j] = 0;
+	   gap = G[i][i];
+	   valM = j - 1;
 
-                 H[i][j] = ( gap > mis ) ? j - 1 : 0;
-                 G[i][j] = max ( mis, gap );
-               }
-             }
-            else if ( i > j )
-             {
-               if ( t[i - 1] == p[j - 1] )
-                {
-                  G[i][j] = G[i - 1][j - 1] + matching_score;
-                  H[i][j] = 0;
-                }
-               else
-                {	
-                  mis = G[i - 1][j - 1] + matching_score;
-                  gap = G[j][j];
+	   if( i > j )	
+	     {
+	       gap = G[j][j];
+               valM = i - j;
+	     }
 
-                  H[i][j] = ( gap > mis ) ? i - j : 0;
-                  G[i][j] = max ( mis, gap );
-                }
-             }
-            else if ( i == j )
-             {
-               G[i][j] = G[i - 1][j - 1] + matching_score;
-               H[i][j] = 0;
-             }
+           if( gap > mis )	H[i][j] = valM;
+	   if( i == j )		gap = mis - 1;
+
+           G[i][j] = max ( mis, gap );
          }
       }
    return ( 1 );
  }
 
-/* The dynamic programming algorithm for calculating matrix G */
+/* The dynamic programming algorithm for calculating only matrix G */
 static unsigned int dp_algorithm_scr ( int ** G, const char * t, unsigned int n, const char * p, unsigned int m, const struct gapmis_params * in )
  {
    int                  gap;
@@ -299,8 +281,11 @@ static unsigned int dp_algorithm_scr ( int ** G, const char * t, unsigned int n,
    int                  matching_score;
    unsigned int 	j_min;
    unsigned int 	j_max;
+   unsigned int 	i_max;
 
-   for( i = 1; i < n + 1; i++)
+   i_max = min ( n, m + in -> max_gap );
+
+   for( i = 1; i < i_max + 1; i++)
      {
        j_min = max ( 1, (int) ( i - in -> max_gap ));
        j_max = min ( m, (int) ( i + in -> max_gap ));
@@ -309,36 +294,11 @@ static unsigned int dp_algorithm_scr ( int ** G, const char * t, unsigned int n,
            matching_score = ( in -> scoring_matrix ? ( int ) pro_delta( t[i - 1], p[j - 1] ) : ( int ) nuc_delta( t[i - 1], p[j - 1] ) );
            if ( matching_score == ERR ) return ( 0 );
 
-           if ( i < j )
-            {
-              if ( t[i - 1] == p[j - 1] )
-               {
-                 G[i][j] = G[i - 1][j - 1] + matching_score;
-               }
-              else
-               {	
-                 mis = G[i - 1][j - 1] + matching_score;
-                 gap = G[i][i];
-                 G[i][j] = max ( mis, gap );
-               }
-             }
-            else if ( i > j )
-             {
-               if ( t[i - 1] == p[j - 1] )
-                {
-                  G[i][j] = G[i - 1][j - 1] + matching_score;
-                }
-               else
-                {	
-                  mis = G[i - 1][j - 1] + matching_score;
-                  gap = G[j][j];
-                  G[i][j] = max ( mis, gap );
-                }
-             }
-            else if ( i == j )
-             {
-               G[i][j] = G[i - 1][j - 1] + matching_score;
-             }
+           mis = G[i - 1][j - 1] + matching_score;
+	   gap = G[i][i];
+	   if( i > j )		gap = G[j][j];
+	   if( i == j )		gap = mis - 1;
+           G[i][j] = max ( mis, gap );
          }
       }
    return ( 1 );
@@ -580,7 +540,7 @@ static unsigned int opt_solution ( int ** G,
    return ( 1 );
  }
 
-/* Computes the optimal alignment using matrix G */
+/* Computes only the maximum score of the optimal alignment using matrix G */
 static unsigned int opt_solution_scr ( int ** G, unsigned int n, unsigned int m, const struct gapmis_params * in, double * scr )
  {
    unsigned int         i;
@@ -613,7 +573,7 @@ static unsigned int opt_solution_scr ( int ** G, unsigned int n, unsigned int m,
        }
       if (  temp_score > score )
        {
-         score            = temp_score;
+         score     = temp_score;
          ( * scr ) = score;
        }
     }
@@ -624,26 +584,22 @@ static unsigned int opt_solution_scr ( int ** G, unsigned int n, unsigned int m,
 /* Computes the limits of the i-th coordinate for the matrix G in constant time */
 static unsigned int i_limits ( unsigned int n, unsigned int m, unsigned int * up, unsigned int * down, unsigned int max_gap )
  {
-   if ( ( int ) m - ( int ) max_gap < 0 )  (* up )    = 0;
-   else                                (* up )    = m - max_gap;
-   if ( m + max_gap > n )              (* down )  = n;
-   else                                (* down )  = m + max_gap;
-
+   (* up )   = ( ( int ) m - ( int ) max_gap < 0 ) ?  0 : m - max_gap;
+   (* down ) = ( m + max_gap > n )                 ?  n : m + max_gap;
    return ( 0 );
  }
 
 
 /*
 Gives the total score of an alignment in constant time
-Note: double matrix_score is the value of G[i][m], i.e. the score of an alignment WITHOUT the gap penalties
+Note: double matrix_score is only the value of G[i][m], i.e. the score of an alignment WITHOUT the gap penalty
 */
 static double total_scoring( unsigned int gap, double matrix_score, double gap_open_penalty, double gap_extend_penalty )
  {
    return ( matrix_score + ( ( gap > 0 ) ? ( gap - 1 ) * gap_extend_penalty + gap_open_penalty : 0 ) );
  }
 
-
-/* Gives the position of the gap in O(m) time */
+/* Computes the position of the gap */
 static unsigned int backtracing ( unsigned int ** H, unsigned int m, unsigned int n, unsigned int start, struct gapmis_align * out )
  {
    unsigned int         i, j;
@@ -674,7 +630,7 @@ static unsigned int backtracing ( unsigned int ** H, unsigned int m, unsigned in
    return ( 1 );
  }
 
-/* Computes the number of mismatches */
+/* Computes the number of mismatches between seqa and seqb*/
 static unsigned int num_mismatch ( const char * seqa, unsigned int seqa_len, const char * seqb, unsigned int seqb_len, struct gapmis_align * out )
  {
    unsigned int i;

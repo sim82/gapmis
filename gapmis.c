@@ -261,9 +261,8 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
              }	
 
            mis = G[i - 1][j - 1] + matching_score;
-	   H[i][j] = 0;
 	   gap = G[i][i];
-	   valM = j - 1;
+	   valM = j - i;
 
 	   if( i > j )	
 	     {

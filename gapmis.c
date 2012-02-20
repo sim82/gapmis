@@ -2,20 +2,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <errno.h>
 #include "gapmis.h"
+#include "errors.h"
 #include "EDNAFULL.h"
 #include "EBLOSUM62.h"
 
-#define NUC_SCORING_MATRIX_SIZE         15		
-#define PRO_SCORING_MATRIX_SIZE         24		
-#define ERR                             24      //error number returned if char_to_index returns an invalid index
+		
 
 /* Computes the optimal semi-global alignment with the maximum score between each pattern p and all texts t */
 unsigned int gapmis_many_to_many_opt ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
    for ( ; *p; ++ p, ++out )
     {
-      gapmis_one_to_many_opt ( *p, t, in, out );
+      if ( ! ( gapmis_one_to_many_opt ( *p, t, in, out ) ) )
+        return ( 0 );  
     }
 
    return ( 1 );
@@ -32,7 +33,8 @@ unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, con
 	
    for ( ; *Tmp; ++Tmp, ++ i )	//computing the maximum score
     {
-      gapmis_one_to_one_scr ( p, *Tmp, in, &scr );
+      if ( ! ( gapmis_one_to_one_scr ( p, *Tmp, in, &scr ) ) )
+        return ( 0 );
       if ( scr > tmp_scr )
        {
          max_t = i;
@@ -40,7 +42,8 @@ unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, con
        } 
     } 
    
-   gapmis_one_to_one ( p, t[ max_t ], in, out ); //computing the rest of the alignment with the maximum score
+   if ( ! ( gapmis_one_to_one ( p, t[ max_t ], in, out ) ) ) //computing the rest of the alignment with the maximum score
+     return ( 0 );
 
    return ( 1 );
  }
@@ -58,32 +61,32 @@ unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struc
    m = strlen ( p );
    if ( m > n )
     {
-      fprintf ( stderr, "Error: the length of p should be less or equal to the length of t!!!\n" );
+      errno = LENGTH; //Error: the length of p should be less or equal to the length of t!!!
       return ( 0 );
     }
    
    if ( in -> scoring_matrix > 1 )
     {
-      fprintf ( stderr, "Error: the value of the scoring matrix parameter should be either 0 (nucleotide sequences) or 1 (protein sequences)!!!\n" );
+      errno = MATRIX; //Error: the value of the scoring matrix parameter should be either 0 (nucleotide sequences) or 1 (protein sequences)!!!
       return ( 0 );
     }
 
    if ( in -> max_gap >= n )
     {
-      fprintf ( stderr, "Error: the value of the max gap parameter should be less than the length of t!!!\n" );
+      errno = MAXGAP; //Error: the value of the max gap parameter should be less than the length of t!!!
       return ( 0 );
     }
 
    /* 2d dynamic memory allocation for matrices G and H*/
    if ( ! ( G = ( int ** ) malloc ( ( n + 1 ) * sizeof ( int * ) ) ) )
     {
-      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      errno = MALLOC; //Error: DP matrix could not be allocated!!!
       return ( 0 );
     } 
    
    if ( ! ( G[0] = ( int * ) calloc ( ( n + 1 ) * ( m + 1 ), sizeof ( int ) ) ) )
     {
-      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      errno = MALLOC; //Error: DP matrix could not be allocated!!!
       return ( 1 );
     } 
    
@@ -93,7 +96,7 @@ unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struc
    /* dynamic programming algorithm */
    if ( ! ( dp_algorithm_scr( G, t, n, p, m, in ) ) )
     {
-      fprintf ( stderr, "Error: dp_algorithm_scr() failed!!!\n" );
+      //Error: dp_algorithm_scr() failed due to bad character!!!
       return ( 0 );	
     }
    
@@ -116,7 +119,8 @@ unsigned int gapmis_many_to_many ( const char const ** p, const char const ** t,
 
    for ( ; *p; ++ p, out += stride )
     {
-      gapmis_one_to_many ( *p, t, in, out );
+      if ( ! ( gapmis_one_to_many ( *p, t, in, out ) ) )
+        return ( 0 );
     }
 
    return ( 1 );
@@ -127,7 +131,8 @@ unsigned int gapmis_one_to_many ( const char * p, const char const ** t, const s
  {
    for ( ; *t; ++ t, ++ out )
     {
-      gapmis_one_to_one ( p, *t, in, out );
+      if ( ! ( gapmis_one_to_one ( p, *t, in, out ) ) )
+        return ( 0 );
     }
 
    return ( 1 );
@@ -148,32 +153,32 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    m = strlen ( p );
    if ( m > n )
     {
-      fprintf ( stderr, "Error: the length of p should be less or equal to the length of t!!!\n" );
+      errno = LENGTH; //Error: the length of p should be less or equal to the length of t!!!
       return ( 0 );
     }
    
    if ( in -> scoring_matrix > 1 )
     {
-      fprintf ( stderr, "Error: the value of the scoring matrix parameter should be either 0 (nucleotide sequences) or 1 (protein sequences)!!!\n" );
+      errno = MATRIX; //Error: the value of the scoring matrix parameter should be either 0 (nucleotide sequences) or 1 (protein sequences)!!!
       return ( 0 );
     }
 
    if ( in -> max_gap >= n )
     {
-      fprintf ( stderr, "Error: the value of the max gap parameter should be less than the length of t!!!\n" );
+      errno = MAXGAP; //Error: the value of the max gap parameter should be less than the length of t!!!
       return ( 0 );
     }
 
    /* 2d dynamic memory allocation for matrices G and H*/
    if ( ! ( G = ( int ** ) malloc ( ( n + 1 ) * sizeof ( int * ) ) ) )
     {
-      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      errno = MALLOC; //Error: DP matrix could not be allocated!!!
       return ( 0 );
     } 
    
    if ( ! ( G[0] = ( int * ) calloc ( ( n + 1 ) * ( m + 1 ), sizeof ( int ) ) ) )
     {
-      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      errno = MALLOC; //Error: DP matrix could not be allocated!!!
       return ( 1 );
     } 
    
@@ -182,13 +187,13 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    
    if ( ! ( H = ( unsigned int ** ) malloc ( ( n + 1 ) * sizeof ( unsigned int * ) ) ) )
     {
-      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      errno = MALLOC; //Error: DP matrix could not be allocated!!!
       return ( 0 );
     } 
    
    if ( ! ( H[0] = ( unsigned int * ) calloc ( ( n + 1 ) * ( m + 1 ) , sizeof ( unsigned int ) ) ) )
     {
-      fprintf ( stderr, "Error: DP matrix could not be allocated!!!\n" );
+      errno = MALLOC; //Error: DP matrix could not be allocated!!!
       return ( 0 );
     }
    
@@ -198,7 +203,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    /* dynamic programming algorithm */
    if ( ! ( dp_algorithm( G, H, t, n, p, m, in ) ) )
     {
-      fprintf ( stderr, "Error: dp_algorithm() failed!!!\n" );
+      //Error: dp_algorithm_scr() failed due to bad character!!!
       return ( 0 );	
     }
    
@@ -249,7 +254,11 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
        for( j = j_min; j <= j_max; j++ )
         {
            matching_score = ( in -> scoring_matrix ? ( int ) pro_delta( t[i - 1], p[j - 1] ) : ( int ) nuc_delta( t[i - 1], p[j - 1] ) );
-           if ( matching_score == ERR ) return ( 0 );
+           if ( matching_score == BADCHAR )
+             {  
+                errno = BADCHAR; //Error: unrecognizable character!!!
+                return ( 0 );
+             }	
 
            mis = G[i - 1][j - 1] + matching_score;
 	   H[i][j] = 0;
@@ -292,7 +301,11 @@ static unsigned int dp_algorithm_scr ( int ** G, const char * t, unsigned int n,
        for( j = j_min; j <= j_max; j++ )
         {
            matching_score = ( in -> scoring_matrix ? ( int ) pro_delta( t[i - 1], p[j - 1] ) : ( int ) nuc_delta( t[i - 1], p[j - 1] ) );
-           if ( matching_score == ERR ) return ( 0 );
+           if ( matching_score == BADCHAR )
+            {  
+               errno = BADCHAR; //Error: unrecognizable character!!!
+               return ( 0 );
+            }	
 
            mis = G[i - 1][j - 1] + matching_score;
 	   gap = G[i][i];
@@ -313,7 +326,7 @@ static int nuc_delta ( char a, char b )
    if ( ( index_a < NUC_SCORING_MATRIX_SIZE ) && ( index_b < NUC_SCORING_MATRIX_SIZE ) )
      return ( EDNAFULL_matrix[ index_a ][ index_b ] );
    else //Error
-     return ( ERR );
+     return ( BADCHAR );
  }
 
 /* Returns the score for matching character a and b based on EBLOSUM62 matrix */
@@ -325,7 +338,7 @@ static int pro_delta ( char a, char b )
    if ( ( index_a < PRO_SCORING_MATRIX_SIZE ) && ( index_b < PRO_SCORING_MATRIX_SIZE ) )
      return ( EBLOSUM62_matrix[ index_a ][ index_b ] );
    else //Error
-     return ( ERR );
+     return ( BADCHAR );
  }
 
 /* Returns the index of char a in EDNAFULL matrix */
@@ -381,8 +394,7 @@ static unsigned int nuc_char_to_index ( char a )
         index = 14; break;
 
       default:
-        fprintf ( stderr, "Error: unrecognizable character in one of the nucleotide sequences!!!\n" );
-        index = ERR; break;
+        index = BADCHAR; break;
     }
    
    return ( index );
@@ -468,8 +480,7 @@ static unsigned int pro_char_to_index ( char a )
         index = 23; break;
 
       default:
-        fprintf ( stderr, "Error: unrecognizable character in one of the protein sequences!!!\n" );
-        index = ERR; break;
+        index = BADCHAR; break;
     }
    return ( index );
  }
@@ -614,7 +625,7 @@ static unsigned int backtracing ( unsigned int ** H, unsigned int m, unsigned in
     {
       i = n; j = start;	//we start backtracing from the last row
     }
-   while ( i >= 0 )
+   while ( i >= 0 && j >= 0 )
     {
       if ( H[i][j] == 0 )
        {
@@ -688,7 +699,11 @@ int main ( int argc, char * argv [] )
    in . gap_extend_pen = 0.5;
 
    /* ONE_TO_ONE test */
-   gapmis_one_to_one ( p1, t2, &in, &out );
+   if ( ! ( gapmis_one_to_one ( p1, t2, &in, &out ) ) )
+     {
+       printf ( "%d\n", errno );
+       return 1;
+     } 
    print ( "ONE_TO_ONE\n", &out );
    printf ( "\n\n" );
 

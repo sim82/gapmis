@@ -8,8 +8,6 @@
 #include "EDNAFULL.h"
 #include "EBLOSUM62.h"
 
-		
-
 /* Computes the optimal semi-global alignment with the maximum score between each pattern p and all texts t */
 unsigned int gapmis_many_to_many_opt ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
@@ -31,7 +29,7 @@ unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, con
    unsigned int max_t       = 0;
    const char   ** Tmp      = t;	
 	
-   for ( ; *Tmp; ++Tmp, ++ i )	//computing the maximum score
+   for ( ; *Tmp; ++Tmp, ++ i )	//computing the alignment with the maximum score
     {
       if ( ! ( gapmis_one_to_one_scr ( p, *Tmp, in, &scr ) ) )
         return ( 0 );
@@ -42,7 +40,7 @@ unsigned int gapmis_one_to_many_opt ( const char * p, const char const ** t, con
        } 
     } 
    
-   if ( ! ( gapmis_one_to_one ( p, t[ max_t ], in, out ) ) ) //computing the rest of the alignment with the maximum score
+   if ( ! ( gapmis_one_to_one ( p, t[ max_t ], in, out ) ) ) //computing the rest details of the alignment with the maximum score
      return ( 0 );
 
    return ( 1 );
@@ -100,7 +98,7 @@ unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struc
       return ( 0 );	
     }
    
-   /* computes the optimal alignment based on the matrix score and the gap function */
+   /* computes the optimal alignment based on the matrix score and the affine gap penalty function */
    opt_solution_scr ( G, n, m, in, scr );
    
    free ( G[0] );
@@ -207,7 +205,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
       return ( 0 );	
     }
    
-   /* computes the optimal alignment based on the matrix score and the gap function */
+   /* computes the optimal alignment based on the matrix score and the affine gap penalty function */
    opt_solution ( G, n, m, in, out, &start );
    
    /* computes the position of the gap */
@@ -324,7 +322,7 @@ static int nuc_delta ( char a, char b )
 
    if ( ( index_a < NUC_SCORING_MATRIX_SIZE ) && ( index_b < NUC_SCORING_MATRIX_SIZE ) )
      return ( EDNAFULL_matrix[ index_a ][ index_b ] );
-   else //Error
+   else //Error: unrecognizable character!!!
      return ( BADCHAR );
  }
 
@@ -336,7 +334,7 @@ static int pro_delta ( char a, char b )
 
    if ( ( index_a < PRO_SCORING_MATRIX_SIZE ) && ( index_b < PRO_SCORING_MATRIX_SIZE ) )
      return ( EBLOSUM62_matrix[ index_a ][ index_b ] );
-   else //Error
+   else //Error: unrecognizable character!!!
      return ( BADCHAR );
  }
 
@@ -485,24 +483,19 @@ static unsigned int pro_char_to_index ( char a )
  }
 
 /* Computes the optimal alignment using matrix G */
-static unsigned int opt_solution ( int ** G, 
-                                   unsigned int n, 
-                                   unsigned int m, 
-                                   const struct gapmis_params * in,
-                                   struct gapmis_align * out,
-                                   unsigned int * start 
-)
+static unsigned int opt_solution ( int ** G, unsigned int n, unsigned int m, const struct gapmis_params * in, struct gapmis_align * out, unsigned int * start )
  {
    unsigned int         i;
    double               score = -DBL_MAX;
    unsigned int         up    = 0;
    unsigned int         down  = 0;
+   double               temp_score;
    
    i_limits ( n, m, &up, &down, in -> max_gap );			// computes the i coordinates for matrix G for the last column
 
    for ( i = up ; i <= down ; i++ )
     {
-      double temp_score = 0.0;
+      temp_score = 0.0;
       if ( i < m )
        {
          if ( m - i <= in -> max_gap )
@@ -557,12 +550,13 @@ static unsigned int opt_solution_scr ( int ** G, unsigned int n, unsigned int m,
    double               score = -DBL_MAX;
    unsigned int         up    = 0;
    unsigned int         down  = 0;
+   double               temp_score;
    
    i_limits ( n, m, &up, &down, in -> max_gap );			
 
    for ( i = up ; i <= down ; i++ )
     {
-      double temp_score = 0.0;
+      temp_score = 0.0;
       if ( i < m )
        {
          if ( m - i <= in -> max_gap )
@@ -602,7 +596,7 @@ static unsigned int i_limits ( unsigned int n, unsigned int m, unsigned int * up
 
 /*
 Gives the total score of an alignment in constant time
-Note: double matrix_score is only the value of G[i][m], i.e. the score of an alignment WITHOUT the gap penalty
+Note: double matrix_score is only the value of G[i][m], i.e. the score of an alignment WITHOUT the affine gap penalty
 */
 static double total_scoring( unsigned int gap, double matrix_score, double gap_open_penalty, double gap_extend_penalty )
  {

@@ -111,19 +111,24 @@ int main( int argc, char *argv[] ) {
     
     // build char** input for gapmis
     std::vector<const char*> gmi_a;//( seqa.size() );
-    std::vector<const char*> gmi_b;//( seqb.size() );
+//     std::vector<const char*> gmi_b;//( seqb.size() );
     
-    
+    // null terminate sequences in seqa and generate char ** array for gapmin
     for( std::vector< seq >::iterator it = seqa.begin(); it != seqa.end(); ++it ) {
         it->push_back(0);
         gmi_a.push_back( (char *)it->data() );
     }
     gmi_a.push_back(0);
     
+    // null terminate sequences in seqb
     for( std::vector< seq >::iterator it = seqb.begin(); it != seqb.end(); ++it ) {
          it->push_back(0);
     }
     
+    
+    // set up work units and start worker threads
+    // the worker threads treat gmi_a and seqb as shared constant data.
+    // they are parameterized by and write the results to their private 'work' object
     const size_t num_threads = 2;
     
     const size_t b_per_thread = seqb.size() / num_threads;
@@ -136,23 +141,25 @@ int main( int argc, char *argv[] ) {
     for( size_t i = 0; i < num_threads - 1; ++i ) {
         size_t b_start = b_end;
         b_end += b_per_thread;
+        
+        // set up work unit i: text seqeunces b_start to b_end
         works[i].b_start_ = b_start;
         works[i].b_end_ = b_end;
         
-        
-       
         tg.create_thread( worker(gmi_a, seqb, &works[i] ) );
     }
     
+    // let the main thread work on the remaining sequences
     works.back().b_start_ = b_end;
     works.back().b_end_ = seqb.size();
     
     worker w(gmi_a, seqb, &works.back());
     w();
     
+    // join workers
     tg.join_all();
     
-    
+    // retrieve the output scores
     for( size_t i = 0; i < works.size(); ++i ) {
      
         std::cout << "worker: " << i << "\n";

@@ -85,7 +85,7 @@ unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struc
    if ( ! ( G[0] = ( int * ) calloc ( ( n + 1 ) * ( m + 1 ), sizeof ( int ) ) ) )
     {
       errno = MALLOC; //Error: DP matrix could not be allocated!!!
-      return ( 1 );
+      return ( 0 );
     } 
    
    for ( i = 1; i < n + 1; ++ i )
@@ -177,7 +177,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    if ( ! ( G[0] = ( int * ) calloc ( ( n + 1 ) * ( m + 1 ), sizeof ( int ) ) ) )
     {
       errno = MALLOC; //Error: DP matrix could not be allocated!!!
-      return ( 1 );
+      return ( 0 );
     } 
    
    for ( i = 1; i < n + 1; ++ i )

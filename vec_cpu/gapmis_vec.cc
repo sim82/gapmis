@@ -518,9 +518,13 @@ public:
 
 
         for( size_t v = 0; v < num_valid; ++v ) {
-            unsigned int         i, j;
+            int         i, j;
             out[v].gap_pos = 0;
 
+//             std::cout << "where: " << out_where_[v] << "\n";
+//             std::cout << "start: " << out_start_[v] << "\n";
+            
+            
             if ( out_where_[v] == 1 || out_where_[v] == 2 )
             {
                 i = out_start_[v]; j = m;         //we start backtracing from the last column
@@ -810,6 +814,7 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
     }
 
     size_t len = strlen(*t_iter);
+    
     aligner<short,VW> ali(len, in->scoring_matrix, states );
     while( true ) {
         const char *block[VW];
@@ -829,7 +834,9 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
 //                if( len == size_t(-1)) {
 //                    len = strlen(block[i]);
 //                } else {
+                
                 assert( len == strlen(block[i]) );
+                
 //                }
 
             } else {
@@ -864,6 +871,7 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
                 //out[i * num_t + block_start + j] = x;
 
             }
+            if( false )
             {
                 ali.backtrace( ali_out, p_sizes[i], num_valid );
             }

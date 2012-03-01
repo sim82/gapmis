@@ -9,6 +9,8 @@ extern "C" {
 #define max(a,b) ((a) > (b)) ? (a) : (b)
 #define min(a,b) ((a) < (b)) ? (a) : (b)
 #endif
+#define NUC_SCORING_MATRIX_SIZE         15		
+#define PRO_SCORING_MATRIX_SIZE         24
 
 struct gapmis_params
  {
@@ -27,7 +29,7 @@ struct gapmis_align
    unsigned int         num_mis;
  };
 
-/* Computes the optimal semi-global alignment between t and p */
+/* Computes only the maximum score of the optimal semi-global alignment between pattern p and text t */
 unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct gapmis_params * in, struct gapmis_align * out );
 
 /* Computes the optimal semi-global alignment between a set of texts and p */

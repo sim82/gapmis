@@ -6,5 +6,6 @@
 #define         MAXGAP		0x00000004
 #define         MALLOC		0x00000008
 #define         BADCHAR		0x00000032
+#define         IO		0x00000064
 
 #endif

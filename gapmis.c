@@ -3,6 +3,7 @@
 #include <string.h>
 #include <float.h>
 #include <errno.h>
+#include <time.h>
 #include "gapmis.h"
 #include "errors.h"
 #include "EDNAFULL.h"
@@ -658,16 +659,249 @@ static unsigned int num_mismatch ( const char * seqa, unsigned int seqa_len, con
    return ( 1 );
  }
 
-/* used only in main function */
-static void print ( const char * label, struct gapmis_align * out )
+/* Prints the header in the output file */
+static void print_header ( FILE * out, const char * filename, const struct gapmis_params* in )
  {
-   printf ( "%smax_score: %f\nmin_gap: %d\nwhere: %d\ngap_pos: %d\nnum_mis: %d\n", label, out -> max_score, out -> min_gap, out -> where, out -> gap_pos, out -> num_mis );
+   time_t               t;
+   time ( &t );
+
+   fprintf ( out, "####################################\n" );
+   fprintf ( out, "# Program: GapMis\n" );
+   fprintf ( out, "# Rundate: %s", ctime ( &t ) );
+   fprintf ( out, "# Report file: %s\n", filename );
+   fprintf ( out, "# Matrix: %s\n", ( in -> scoring_matrix ? "BLOSUM62" : "EDNAFULL" ) );
+   fprintf ( out, "# Gap penalty: %.3f\n", in -> gap_open_pen );
+   fprintf ( out, "# Extend penalty: %.3f\n", in -> gap_extend_pen );
+   fprintf ( out, "####################################\n\n" );
+ }
+
+/* Creates seq_gap and mark_mis, and computes min_mis */
+static unsigned int print_alignment ( const char * seqa, unsigned int seqa_len, const char * seqb, unsigned int seqb_len, char* seq_gap, char* mark_mis, const struct gapmis_params* in, struct gapmis_align* out )
+ {
+   unsigned int i, j;
+
+   if ( out -> min_gap > 0 )
+    {
+
+      for ( i = 0; i < out -> gap_pos; ++ i )
+       {
+         seq_gap[i] = seqa[i];
+         if ( seqa[i] != seqb[i] )	
+          {
+            mark_mis[i] = '.';
+          }
+         else				
+           mark_mis[i] = '|';
+       }
+
+      for ( j = 0; j < out -> min_gap; ++ j )
+       {
+         seq_gap[ j + i ] = '-'; 
+         mark_mis[ j + i ] = ' ';
+       }
+
+      for ( ; i < seqb_len - out -> min_gap && i < seqa_len ; ++ i )
+       {
+         seq_gap[j + i] = seqa[i];
+         if ( seqa[i] != seqb[i + out -> min_gap] )	
+          {
+            mark_mis[ j + i ] = '.';
+          }
+         else
+           mark_mis[j + i] = '|';
+       }
+      
+      for ( ; i < seqa_len; ++ i )
+       {
+         seq_gap[j + i] = seqa[i];
+         mark_mis[ j + i ] = '|';
+       }
+    }
+   else
+    {
+      for ( i = 0; i < seqa_len; ++ i )
+       {
+         seq_gap[i] = seqa[i];
+         if ( seqa[i] != seqb[i] )
+          {
+            mark_mis[i] = '.';
+          }
+         else			
+           mark_mis[i] = '|';
+       }
+    }	
+   
+   return ( 1 );
+ }
+
+static void print_line ( const char * s, int start, int stop, int * nr_gaps, int end, int diff, FILE * output, const char* header )
+ {
+   int                  k;
+
+   if ( start == stop ) return;
+
+   if ( diff )
+    {
+      fprintf ( output, "%25s", "" );
+    }
+   else
+    {
+     if ( header )
+       fprintf ( output, "%-13.13s %10d ", header, start + 1 - *nr_gaps );
+     else
+       fprintf ( output, "%-13.13s %10d ", "", start + 1 - *nr_gaps );
+    }
+
+   for ( ; start < stop; ++ start )
+    {
+      fputc ( s[start], output );
+      if ( s[start] == '-' && ! diff ) ++ ( *nr_gaps );
+    }
+
+   if ( stop != end )
+    {
+      for ( k = stop; k < end; ++ k )
+       {
+         fputc ( ' ', output );
+       }
+    }
+   if ( ! diff )  fprintf ( output, " %-10d", start - *nr_gaps );
+   fprintf ( output, "\n" );
+ }
+
+/* Wrap two sequences s1 and s2 including the differences (diff) so that the line width is at most len */
+static void wrap ( const char * s1, const char * s1_header, const char * s2, const char * s2_header, const char * diff, int len, FILE * output )
+ {
+   int                  m, n, i, j;
+   int                  nr_gaps_a;
+   int                  nr_gaps_b;
+   int                  nr_lines;
+
+   if ( ! len ) return;
+
+   m = strlen ( s1 );
+   n = strlen ( s2 );
+
+   if ( ! n && ! m ) return;
+
+   i         = 0;
+   j         = 0;
+   nr_gaps_a = 0;
+   nr_gaps_b = 0;
+
+   //nr_lines = m / len;
+   nr_lines = ( n > m ? m : n ) / len;
+   for ( i = 0; i < nr_lines; ++ i )
+    {
+      /* Sequence s1 */
+      print_line ( s1 , i * len, ( i + 1 ) * len, &nr_gaps_a, ( i + 1 ) * len, 0, output, s1_header );
+
+      /* Difference */
+      print_line ( diff, i * len, ( i + 1 ) * len, NULL, ( i + 1 ) * len, 1, output, NULL );
+
+      /* Sequence s2 */
+      print_line ( s2 , i * len, ( i + 1 ) * len, &nr_gaps_b, ( i + 1 ) * len, 0, output, s2_header );
+      fprintf ( output, "\n" );
+    }
+
+   /* Last line of first sequence and difference */
+   j = i * len;
+   if ( j < m || j < n ) 
+    {
+      print_line ( s1, i * len, min ( m, n ), &nr_gaps_a, ( i + 1 ) * len, 0, output, s1_header );
+      print_line ( diff, i * len, ( m < n ) ? m : n, NULL, ( i + 1 ) * len, 1, output, NULL );
+      print_line ( s2, i * len, min ( n, m), &nr_gaps_b, ( i + 1 ) * len, 0, output, s2_header );
+    }
+
+ }
+
+/* Creates the output file with the alignment */
+unsigned int results ( const char * filename, const char * p, const char * p_header, const char * t, const char * t_header, const struct gapmis_params* in, struct gapmis_align* out )
+ {
+
+   FILE          * output;
+   char          * seq_gap;            //the sequence with the inserted gap 
+   char          * mark_mis;           //a string with the mismatches marked as '|' (and the matches as ' ')
+   unsigned int    n;
+   unsigned int    m;
+ 
+   n = strlen ( t );
+   m = strlen ( p );
+   if ( m > n )
+    {
+      errno = LENGTH; //Error: the length of p should be less or equal to the length of t!!!
+      return ( 0 );
+    }
+   
+   if ( in -> scoring_matrix > 1 )
+    {
+      errno = MATRIX; //Error: the value of the scoring matrix parameter should be either 0 (nucleotide sequences) or 1 (protein sequences)!!!
+      return ( 0 );
+    }
+
+   if ( in -> max_gap >= n )
+    {
+      errno = MAXGAP; //Error: the value of the max gap parameter should be less than the length of t!!!
+      return ( 0 );
+    }
+   
+   /* Dynamic memory allocation for seq_gap */
+   if ( ! ( seq_gap = ( char * ) calloc ( n + 1 + ( out -> min_gap ) + 1, sizeof ( char ) ) ) )
+    {
+      errno = MALLOC; //Error: seq_gap could not be allocated!!!
+      return ( 0 );
+    } 
+   
+   if ( ! ( mark_mis = ( char* ) calloc ( n + ( out -> min_gap ) + 1, sizeof( char ) ) ) )
+    {
+      errno = MALLOC; //Error: mark_mis could not be allocated!!!
+      return ( 0 );
+    } 
+   
+   if ( ! ( output = fopen ( filename, "a" ) ) )
+    {
+      errno = IO; 
+      return ( 0 );
+    }
+   
+   print_header ( output, filename, in );
+   
+   if ( out -> where == 1 ) //gap is in the text
+    {
+      print_alignment ( t, n, p, m, seq_gap, mark_mis, in, out );
+      wrap ( p, p_header, seq_gap, t_header, mark_mis, LINE_LNG, output ); 
+    }
+   else                     //gap is in the pattern
+    {
+      print_alignment ( p, m, t, n, seq_gap, mark_mis, in, out );
+      wrap ( seq_gap, p_header, t, t_header, mark_mis, LINE_LNG, output ); 
+    }
+   
+   fprintf ( output, "\n" );
+   fprintf ( output, "Alignment score: %lf\n", out -> max_score );
+   fprintf ( output, "Number of mismatches: %d\n", out -> num_mis );
+   fprintf ( output, "Length of gap: %d\n", out -> min_gap );
+   
+   if( out -> min_gap > 0 )
+    {
+      fprintf ( output, "The gap was inserted in %.13s after position %d\n", ( out -> where == 1 ) ? t_header : p_header, out -> gap_pos );
+    } 
+   
+   fprintf ( output, "\n\n" );
+   
+   if ( fclose ( output ) ) 
+    {
+      errno = IO; 
+      return ( 0 );
+    }
+   
+   free ( mark_mis );
+   
+   return ( 1 );	
  }
 
 int main ( int argc, char * argv [] )
  {
-   unsigned int                 i, j;
-   double		        scr;
    struct gapmis_params         in;
    struct gapmis_align          out;
    struct gapmis_align          out_arr[3];
@@ -697,40 +931,25 @@ int main ( int argc, char * argv [] )
        printf ( "%d\n", errno );
        return 1;
      } 
-   print ( "ONE_TO_ONE\n", &out );
-   printf ( "\n\n" );
+   results ( "ONE_TO_ONE", p1, "p1", t2, "t2", &in, &out );
 
-   /* ONE_TO_MANY test */
+   // ONE_TO_MANY test
    gapmis_one_to_many ( p1, texts, &in, out_arr );
-   for ( i = 0; i < 3; ++ i )
-     print ( "ONE_TO_MANY\n", &out_arr[i] );
-   printf ( "\n\n" );
+   results ( "ONE_TO_MANY", p1, "p1", t2, "t2", &in, &out_arr[0] );
+   results ( "ONE_TO_MANY", p1, "p1", t1, "t1", &in, &out_arr[1] );
+   results ( "ONE_TO_MANY", p1, "p1", t3, "t3", &in, &out_arr[2] );
    
-   /* MANY_TO_MANY test */
+   // MANY_TO_MANY test
    gapmis_many_to_many ( pats, texts, &in, out_arr2 );
-   for ( i = 0; i < 3; ++ i )
-    for ( j = 0; j < 3; ++ j )
-     {
-       printf ( "%d ", i * 3 + j );
-       print ( "MANY_TO_MANY\n", &out_arr2[i * 3 + j] );
-     }
-   printf ( "\n\n" );
-
-   /* ONE_TO_ONE_SCR test */
-   gapmis_one_to_one_scr ( p1, t2, &in, &scr );
-   printf ( "ONE_TO_ONE_SCR\n%lf", scr );
-   printf ( "\n\n" );
-
-   /* ONE_TO_MANY_OPT test */
-   gapmis_one_to_many_opt ( p1, texts, &in, &out );
-   print ( "ONE_TO_MANY_OPT\n", &out );
-   printf ( "\n\n" );
-
-   /* MANY_TO_MANY_OPT test */
-   gapmis_many_to_many_opt ( pats, texts, &in, out_arr );
-   for ( i = 0; i < 3; ++ i )
-     print ( "MANY_TO_MANY_OPT\n", &out_arr[i] );
-   printf ( "\n\n" );
+   results ( "MANY_TO_MANY", p1, "p1", t2, "t2", &in, &out_arr2[0] );
+   results ( "MANY_TO_MANY", p1, "p1", t1, "t1", &in, &out_arr2[1] );
+   results ( "MANY_TO_MANY", p1, "p1", t3, "t3", &in, &out_arr2[2] );
+   results ( "MANY_TO_MANY", p1, "p2", t2, "t2", &in, &out_arr2[3] );
+   results ( "MANY_TO_MANY", p1, "p2", t1, "t1", &in, &out_arr2[4] );
+   results ( "MANY_TO_MANY", p1, "p2", t3, "t3", &in, &out_arr2[5] );
+   results ( "MANY_TO_MANY", p1, "p3", t2, "t2", &in, &out_arr2[6] );
+   results ( "MANY_TO_MANY", p1, "p3", t1, "t1", &in, &out_arr2[7] );
+   results ( "MANY_TO_MANY", p1, "p3", t3, "t3", &in, &out_arr2[8] );
 
    return ( 0 );
  }

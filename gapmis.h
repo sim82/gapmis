@@ -5,6 +5,7 @@
 #define min(a,b) ((a) < (b)) ? (a) : (b)
 #define NUC_SCORING_MATRIX_SIZE         15		
 #define PRO_SCORING_MATRIX_SIZE         24
+#define LINE_LNG 50
 
 struct gapmis_params
  {

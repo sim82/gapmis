@@ -13,4 +13,4 @@ gapmis: $(OBJ)
 clean:
 	rm -f gapmis $(OBJ) *~ 
 
-$(OBJ) : EDNAFULL.h EBLOSUM62.h gapmis.h makefile
+$(OBJ) : EDNAFULL.h EBLOSUM62.h gapmis.h errors.h makefile

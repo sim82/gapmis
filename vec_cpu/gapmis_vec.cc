@@ -229,11 +229,11 @@ public:
 
 
             //for( size_t i = 1; i < n_ + 1; ++i ) {
-            //const size_t i_min = std::max ( 1, int( int(j) - max_gap ));
-            //const size_t i_max = std::min ( int(n_), int( int(j) + max_gap ));
+            const size_t i_min = std::max ( 1, int( int(j) - max_gap ));
+            const size_t i_max = std::min ( int(n_), int( int(j) + max_gap ));
 
-            const size_t i_min = 1;
-            const size_t i_max = n_;
+            /*const size_t i_min = 1;
+            const size_t i_max = n_*/;
             for( size_t i = i_min; i <= i_max; ++i ) {
                 vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
                 const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
@@ -871,7 +871,7 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
                 //out[i * num_t + block_start + j] = x;
 
             }
-            if( false )
+            if(! false )
             {
                 ali.backtrace( ali_out, p_sizes[i], num_valid );
             }

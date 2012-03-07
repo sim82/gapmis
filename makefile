@@ -7,14 +7,17 @@ OBJ_VEC = vec_cpu/gapmis_vec.o vec_cpu/main.o
 OBJ_NTOM = vec_cpu/gapmis_vec.o vec_cpu/gapmis_ntom.o
 
 
-CFLAGS = -Wall -O2
-CXXFLAGS = -O3 -Wall -msse3 -I.
+#CFLAGS = -Wall -O2
+#CXXFLAGS = -O3 -Wall -msse3 -I.
+CFLAGS = -Wall -g
+CXXFLAGS = -Wall -g -I.
+
 OFLAGS = -msse3 -O2 -fomit-frame-pointer -funroll-loops  
 
-all: gapmis gapmis_vec gapmis_ntom
+all: gapmis_vec gapmis_ntom gapmis
 
-gapmis: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(OFLAGS)
+gapmis: $(OBJ) vec_cpu/gapmis_vec.o
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) $(OFLAGS) vec_cpu/gapmis_vec.o
 
 gapmis_vec: $(OBJ_VEC)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_VEC)

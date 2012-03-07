@@ -9,6 +9,7 @@
 #include "EDNAFULL.h"
 #include "EBLOSUM62.h"
 
+#if 0
 /* Computes the optimal semi-global alignment with the maximum score between each pattern p and all texts t */
 unsigned int gapmis_many_to_many_opt ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
@@ -227,7 +228,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    return ( 1 );
    
  } 
-
+#endif
 /* The dynamic programming algorithm for calculating matrices G and H */
 static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, unsigned int n, const char * p, unsigned int m, const struct gapmis_params * in )
  {

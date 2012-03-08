@@ -145,7 +145,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    unsigned int         n;
    unsigned int         m;
    unsigned int         i;
-   unsigned int         start;
+   unsigned int         start = 0;
 
    /* Checks the input parameters */
    n = strlen ( t );
@@ -1169,11 +1169,11 @@ int main ( int argc, char * argv [] )
    
    printf("\nAlignment...\n");
    /* MANY_TO_MANY test */
-   if ( gapmis_many_to_many ( querys, targets, &in, out ) )
+   if ( gapmis_many_to_many_opt ( querys, targets, &in, out ) )
     {
-      printf("\nWriting the results...\n");
+      //printf("\nWriting the results...\n");
       /* MANY_TO_MANY results */
-      results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
+      //results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
     }
 
    /* Deallocation */

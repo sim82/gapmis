@@ -59,7 +59,7 @@ public:
         parm.scoring_matrix = 0;
         parm.gap_open_pen = 10;
         parm.gap_extend_pen = 1;
-        parm.max_gap = lenb_ - 1;
+        parm.max_gap = 27; //lenb_ - 1;
         
         
         
@@ -129,7 +129,7 @@ int main( int argc, char *argv[] ) {
     // set up work units and start worker threads
     // the worker threads treat gmi_a and seqb as shared constant data.
     // they are parameterized by and write the results to their private 'work' object
-    const size_t num_threads = 2;
+    const size_t num_threads = 4;
     
     const size_t b_per_thread = seqb.size() / num_threads;
     
@@ -160,17 +160,25 @@ int main( int argc, char *argv[] ) {
     tg.join_all();
     
     // retrieve the output scores
-    for( size_t i = 0; i < works.size(); ++i ) {
-     
-        std::cout << "worker: " << i << "\n";
-        
-        const std::vector<gapmis_align> &out = works.at(i).out_;
-        
-//         for( size_t j = 0; j < out.size(); ++j ) {
-//             std::cout << "out: " << i << " " << j << " " << out[j].max_score << "\n";
+    
+//     for( size_t ia = 0; ia < seqa.size(); ++ia ) {
+//         for( size_t i = 0; i < works.size(); ++i ) {
+//      
+//             const work &w = works[i];
+//         //std::cout << "worker: " << i << "\n";
+//         
+//             const std::vector<gapmis_align> &out = w.out_;
+//             
+//             const size_t block_width = w.b_end_ - w.b_start_;
+//             
+//             for( size_t ib = w.b_start_; ib < w.b_end_; ++ib ) {
+//                 std::cout << ib << " " << ia << " " << nameb[ib] << " " << namea[ia] << " " << out[ia * block_width + (ib-w.b_start_)].max_score << "\n";
+//             }
 //         }
-        
-    }
+//         
+//     }
+    
+    
     
     
 //     size_t lenb = -1;

@@ -121,7 +121,7 @@ public:
     using std::vector<T,ab_internal_::alloc<T,alignment> >::clear;
     
     using std::vector<T,ab_internal_::alloc<T,alignment> >::operator[];
-    
+    using std::vector<T,ab_internal_::alloc<T,alignment> >::at;
     inline T* operator() (ptrdiff_t o) {
         return &(operator[](o));
     }

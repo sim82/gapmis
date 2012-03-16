@@ -1174,7 +1174,7 @@ int main ( int argc, char * argv [] )
     {
       printf("\nWriting the results...\n");
       /* MANY_TO_MANY results */
-      results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
+//       results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
     }
 
    /* Deallocation */

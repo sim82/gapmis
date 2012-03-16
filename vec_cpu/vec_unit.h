@@ -195,6 +195,14 @@ struct vector_unit<int, 4> {
     static inline const vec_t bit_andnot( const vec_t &a, const vec_t &b ) {
         return _mm_andnot_si128( a, b );
     }
+    static inline const vec_t bit_or( const vec_t &a, const vec_t &b ) {
+        return _mm_or_si128( a, b );
+    }
+    static inline const vec_t bit_invert( const vec_t &a ) {
+        return _mm_xor_si128( a, set1(0xffffffff) );
+    }
+    
+    
     
 //     static inline const vec_t bit_invert( const vec_t &a ) {
 //         //return _mm_andnot_pd(a, set1(0xffff));
@@ -321,7 +329,20 @@ struct vector_unit<float, 4> {
     static inline const vec_t bit_andnot( const vec_t &a, const vec_t &b ) {
         return _mm_andnot_ps( a, b );
     }
-#endif
+
+    static inline const vec_t bit_or( const vec_t &a, const vec_t &b ) {
+        return _mm_or_ps( a, b );
+    }
+    static inline const vec_t bit_invert( const vec_t &a ) {
+        return _mm_xor_ps( a, _mm_castsi128_ps( _mm_set1_epi32(0xffffffff) ));
+        
+        
+    }
+
+    #endif
+
+    
+
 //     static inline const vec_t bit_invert( const vec_t &a ) {
 //         //return _mm_andnot_pd(a, set1(0xffff));
 //     }

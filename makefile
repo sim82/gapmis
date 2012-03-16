@@ -7,10 +7,10 @@ OBJ_VEC = vec_cpu/gapmis_vec.o vec_cpu/main.o
 OBJ_NTOM = vec_cpu/gapmis_vec.o vec_cpu/gapmis_ntom.o
 
 
-#CFLAGS = -Wall -O2
-#CXXFLAGS = -O3 -Wall -msse3 -I.
-CFLAGS = -Wall -g
-CXXFLAGS = -Wall -g -I.
+CFLAGS = -Wall -O2
+CXXFLAGS = -O3 -Wall -msse3 -I.
+#CFLAGS = -Wall -g -march=native
+#CXXFLAGS = -Wall -g -I. -march=native
 
 OFLAGS = -msse3 -O2 -fomit-frame-pointer -funroll-loops  
 

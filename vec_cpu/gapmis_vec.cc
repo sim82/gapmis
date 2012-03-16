@@ -103,119 +103,6 @@ public:
         }
         ncup_ += n_ * m * VW;
 
-#if 0
-        for( size_t j = 1; j < m + 1; ++j ) {
-            size_t p_comp = qs_back_.at( p[j] );
-            assert( p_comp != size_t(-1) );
-
-            score_t * __restrict aprof_iter = aprofile_( n_ * VW * p_comp );
-
-
-
-            //   for( size_t i = 1; i < n_ + 1; ++i ) {
-            for( size_t i = 1; i < j; ++i ) {
-                vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
-                const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
-                const size_t cur_addr = row_size * j + i * VW;
-
-
-
-
-                const size_t mdiag_addr = row_size * i + i * VW;
-
-
-                const vec_t g_diag = vu::load( g_(diag_addr ));
-                const vec_t g_mdiag = vu::load( g_(mdiag_addr ));
-                const vec_t mis = vu::add( g_diag, matching_score );
-                const vec_t gap = g_mdiag;
-
-                const vec_t cmp_mask = vu::cmp_lt( mis, gap );
-                const vec_t h = vu::bit_and( cmp_mask, vu::set1( j - i ));
-
-                vu::store( h, h_(cur_addr) );
-                const vec_t g = vu::max( mis, gap );
-                vu::store( g, g_(cur_addr));
-
-                //                    if( t[i] == p[j] )
-                //                    {
-                //                        G[i][j] = G[i-1][j-1] + matching_score;
-                //                        H[i][j] = 0;
-                //                    }
-                //                    else
-                //                    {
-                //                        mis = G[i-1][j-1] + matching_score;
-                //                        gap = G[i][i];
-                //
-                //                        if ( gap > mis )
-                //                            H[i][j] = j - i;
-                //                        else
-                //                            H[i][j] = 0;
-                //
-                //                        G[i][j] = std::max ( mis, gap );
-                //                    }
-            }
-
-            if( j < n_ + 1 )
-            {
-                size_t i = j;
-
-                vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
-                const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
-                const size_t cur_addr = row_size * j + i * VW;
-
-                vu::store( vu::add( matching_score, vu::load(g_(diag_addr))), g_(cur_addr) );
-                vu::store( vu::setzero(), h_(cur_addr));
-            }
-
-            //                    G[i][j] = G[i-1][j-1] + matching_score;
-            //                    H[i][j] = 0;
-
-
-            for( size_t i = j + 1; i < n_ + 1; ++ i)
-            {
-                vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
-                const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
-                const size_t cur_addr = row_size * j + i * VW;
-
-
-
-                const size_t mdiag_addr = row_size * j + j * VW;
-
-
-                const vec_t g_diag = vu::load( g_(diag_addr ));
-                const vec_t g_mdiag = vu::load( g_(mdiag_addr ));
-                const vec_t mis = vu::add( g_diag, matching_score );
-                const vec_t gap = g_mdiag;
-
-                const vec_t cmp_mask = vu::cmp_lt( mis, gap );
-                const vec_t h = vu::bit_and( cmp_mask, vu::set1( i - j ));
-
-                vu::store( h, h_(cur_addr) );
-                const vec_t g = vu::max( mis, gap );
-                vu::store( g, g_(cur_addr));
-
-                //                    if( t[i] == p[j] )
-                //                    {
-                //                        G[i][j] = G[i-1][j-1] + matching_score;
-                //                        H[i][j] = 0;
-                //                    }
-                //                    else
-                //                    {
-                //                        mis = G[i-1][j-1] + matching_score;
-                //                        gap = G[j][j];
-                //
-                //                        if ( gap > mis )
-                //                            H[i][j] = i - j;
-                //                        else
-                //                            H[i][j] = 0;
-                //
-                //                        G[i][j] = std::max ( mis, gap );
-                //                    }
-            }
-        }
-
-
-#else
 
 
         for( size_t j = 1; j < m + 1; ++j ) {
@@ -234,6 +121,8 @@ public:
 
             /*const size_t i_min = 1;
             const size_t i_max = n_*/;
+            _mm_prefetch( g_(row_size * j-1), _MM_HINT_T0);
+#if 0
             for( size_t i = i_min; i <= i_max; ++i ) {
                 vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
                 const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
@@ -284,9 +173,71 @@ public:
 
 
             }
+#else
+            //for( size_t i = i_min; i <= i_max; ++i ) {
+            size_t i = i_min;
+//             size_t diag_addr = row_size * (j-1) + (i-1) * VW;
+//             size_t cur_addr = row_size * j + i * VW;
+            
+            for( ; i < j; ++i /*, diag_addr += VW, cur_addr += VW */) {
+                vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
+                const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
+                const size_t cur_addr = row_size * j + i * VW;
+
+                
+
+
+                const size_t mdiag_addr = row_size * i + i * VW;
+
+
+                const vec_t g_diag = vu::load( g_(diag_addr ));
+                const vec_t g_mdiag = vu::load( g_(mdiag_addr ));
+                const vec_t mis = vu::add( g_diag, matching_score );
+                const vec_t gap = g_mdiag;
+
+                const vec_t cmp_mask = vu::cmp_lt( mis, gap );
+                const vec_t h = vu::bit_and( cmp_mask, vu::set1( j - i ));
+
+                vu::store( h, h_(cur_addr) );
+                const vec_t g = vu::max( mis, gap );
+                vu::store( g, g_(cur_addr));
+            }
+            for( ;i == j; ++i /*, diag_addr += VW, cur_addr += VW */) {
+                vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
+                const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
+                const size_t cur_addr = row_size * j + i * VW;
+                vu::store( vu::add( matching_score, vu::load(g_(diag_addr))), g_(cur_addr) );
+                vu::store( vu::setzero(), h_(cur_addr));
+                
+            }
+            for( ; i <= i_max; ++i/*, diag_addr += VW, cur_addr += VW */) {
+                vec_t matching_score = vu::load( aprof_iter + (i-1) * VW );
+                const size_t diag_addr = row_size * (j-1) + (i-1) * VW;
+                const size_t cur_addr = row_size * j + i * VW;
+            
+
+                const size_t mdiag_addr = row_size * j + j * VW;
+                
+                
+                const vec_t g_diag = vu::load( g_(diag_addr ));
+                const vec_t g_mdiag = vu::load( g_(mdiag_addr ));
+                const vec_t mis = vu::add( g_diag, matching_score );
+                const vec_t gap = g_mdiag;
+                
+                const vec_t cmp_mask = vu::cmp_lt( mis, gap );
+                const vec_t h = vu::bit_and( cmp_mask, vu::set1( i - j ));
+                
+                vu::store( h, h_(cur_addr) );
+                const vec_t g = vu::max( mis, gap );
+                vu::store( g, g_(cur_addr));
+                
+            }
+            
+
+            
+#endif
 
         }
-#endif
     }
     inline vec_t total_scoring( unsigned int gap, vec_t matrix_score, double gap_open_penalty, double gap_extend_penalty )
     {
@@ -351,7 +302,7 @@ public:
         i_limits( n_, m, &up, &down, MAXgap );                   // computes the i coordinates for matrix G for the last column
 
 
-
+        
         const size_t row_size = (n_ + 1) * VW;
         for ( size_t i = up ; i <= down ; i++ )
         {
@@ -536,8 +487,8 @@ public:
             while ( i >= 0 )
             {
                 const size_t row_size = (n_ + 1) * VW;
-                int h = h_[row_size * j + i * VW + v];
-
+                //int h = h_[row_size * j + i * VW + v];
+                int h = h_.at(row_size * j + i * VW + v);
                 if ( h == 0 )
                 {
                     --i; --j;
@@ -802,8 +753,12 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
     const std::vector<char> states( states_c, states_c + n_states);
 
     const char ** t_iter = t;
-    const size_t VW = 8;
-
+    
+//     typedef short score_t;
+    typedef float score_t;
+    const size_t VW = 16 / sizeof(score_t);
+    
+    
     size_t block_start = 0;
 
     std::vector<size_t> p_sizes;
@@ -815,7 +770,7 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
 
     size_t len = strlen(*t_iter);
     
-    aligner<short,VW> ali(len, in->scoring_matrix, states );
+    aligner<score_t,VW> ali(len, in->scoring_matrix, states );
     while( true ) {
         const char *block[VW];
         std::fill( block, block + VW, (char *)0 );
@@ -871,7 +826,7 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
                 //out[i * num_t + block_start + j] = x;
 
             }
-            if(! false )
+            if( !false )
             {
                 ali.backtrace( ali_out, p_sizes[i], num_valid );
             }

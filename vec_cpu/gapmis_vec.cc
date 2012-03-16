@@ -11,8 +11,13 @@
 #include <algorithm>
 #include <vector>
 #include <limits>
+#include <cerrno>
 //#include "functions.h"
+
+#ifndef _USE_SSE
 #define _USE_SSE
+#endif
+
 #define _HACK_CLEAN_NAMESPACE
 #include "../gapmis.h"
 #include "../EDNAFULL.h"
@@ -20,11 +25,22 @@
 #include "vec_unit.h"
 #include "aligned_buffer.h"
 #include "cycle.h"
+#include "../errors.h"
 
 const size_t NUC_SCORING_MATRIX_SIZE = 15;
 const size_t PRO_SCORING_MATRIX_SIZE = 24;
 const int ERR = 24;      //error number returned if char_to_index returns an invalid index
 
+
+class bad_char_error : public std::exception {
+public:
+    int c_;
+    
+    bad_char_error( int c ) : c_(c) {}
+    virtual ~bad_char_error() throw() {}
+    
+    
+};
 
 template<typename score_t, size_t VW>
 class aligner {
@@ -108,10 +124,19 @@ public:
 
 
         for( size_t j = 1; j < m + 1; ++j ) {
+            char pc = p[j-1];
+            
+            if( pc < 0 || pc > qs_back_.size() ) {
+                throw bad_char_error(pc);
+            }
             size_t p_comp = qs_back_.at( p[j-1] );
 
+            if( p_comp == size_t(-1) ) {
+                throw bad_char_error(pc);
+            }
+            
 //            std::cout << "p[j]" << int(p[j]) << "\n";
-            assert( p_comp != size_t(-1) );
+            //assert( p_comp != size_t(-1) );
 
             score_t * __restrict aprof_iter = aprofile_( n_ * VW * p_comp );
 
@@ -511,10 +536,11 @@ private:
         unsigned int index_a = nuc_char_to_index ( a );
         unsigned int index_b = nuc_char_to_index ( b );
 
-        if ( ( index_a < NUC_SCORING_MATRIX_SIZE ) && ( index_b < NUC_SCORING_MATRIX_SIZE ) )
+        if ( ( index_a < NUC_SCORING_MATRIX_SIZE ) && ( index_b < NUC_SCORING_MATRIX_SIZE ) ) {
             return ( EDNAFULL_matrix[ index_a ][ index_b ] );
-        else //Error
-            return ( ERR );
+        } else {
+            assert(0 && "nuc_char_to_index did not throw exception as it was supposed to do" );
+        }
     }
 
     /* Returns the score for matching character a and b based on EBLOSUM62 matrix */
@@ -523,10 +549,11 @@ private:
         unsigned int index_a = pro_char_to_index ( a );
         unsigned int index_b = pro_char_to_index ( b );
 
-        if ( ( index_a < PRO_SCORING_MATRIX_SIZE ) && ( index_b < PRO_SCORING_MATRIX_SIZE ) )
+        if ( ( index_a < PRO_SCORING_MATRIX_SIZE ) && ( index_b < PRO_SCORING_MATRIX_SIZE ) ) {
             return ( EBLOSUM62_matrix[ index_a ][ index_b ] );
-        else //Error
-            return ( ERR );
+        } else {
+            assert(0 && "pro_char_to_index did not throw exception as it was supposed to do" );
+        }
     }
 
     /* Returns the index of char a in EDNAFULL matrix */
@@ -582,10 +609,10 @@ private:
             index = 14; break;
 
           default:
-            fprintf ( stderr, "Error: unrecognizable character in one of the nucleotide sequences ('%d')!!!\n", a );
+            
             index = ERR;
-            throw std::runtime_error( "bailing out" );
-            break;
+            throw bad_char_error(a);
+            //break;
         }
 
        return ( index );
@@ -673,7 +700,8 @@ private:
 
           default:
             fprintf ( stderr, "Error: unrecognizable character in one of the protein sequences!!!\n" );
-            index = ERR; break;
+            throw bad_char_error(a);
+            //index = ERR; break;
         }
        return ( index );
      }
@@ -858,113 +886,129 @@ unsigned int gapmis_many_to_many_sse ( const char ** p, const char ** t, const s
 unsigned int gapmis_one_to_many_opt_sse ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
 
     const char *px[2] = {p, 0};
-    return gapmis_many_to_many( px, t, in, out );
+    return gapmis_many_to_many_opt_sse( px, t, in, out );
 }
 
 /* Computes the optimal semi-global alignment between a set of factors and a set of patterns */
 unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
-    size_t         num_t = 0;
-
-    for ( const char **Tmp = t; *Tmp; ++ Tmp, ++num_t );  //Counting the number of texts
+    try {
+        
+        size_t         num_t = 0;
+        
+        for ( const char **Tmp = t; *Tmp; ++ Tmp, ++num_t );  //Counting the number of texts
 
 
     // states_c controls for which sequences characters the reference profile will be generated
-    const char *states_c = in->scoring_matrix == 0 ? "ACGT" : "ARNDCQEGHILKMFPSTWYVBZX";
-
-    const size_t n_states = strlen( states_c );
-    const std::vector<char> states( states_c, states_c + n_states);
-
-    const char ** t_iter = t;
-    
-//     typedef short score_t;
-    typedef float score_t;
-    const size_t VW = 16 / sizeof(score_t);
-    
-    
-    size_t block_start = 0;
-
-    std::vector<size_t> p_sizes;
-    std::vector<const char*> p_ptrs;
-    for( const char ** p_iter = p; *p_iter != 0; ++p_iter ) {
-        p_sizes.push_back(strlen(*p_iter));
-        p_ptrs.push_back( *p_iter );
-    }
-
-    size_t len = strlen(*t_iter);
-    
-    aligner<score_t,VW> ali(len, in->scoring_matrix, states );
-    std::vector<double> max_scores( p_ptrs.size(), -std::numeric_limits<double>::infinity());
-    std::vector<size_t> max_text_idx( p_ptrs.size(), size_t(-1));
-    
-    while( true ) {
-        const char *block[VW];
-        std::fill( block, block + VW, (char *)0 );
-
-        size_t num_valid = 0;
-
-
-
-        for( size_t i = 0; i < VW; ++i ) {
-            if( * t_iter != 0 ) {
-                block[i] = *t_iter;
-                ++num_valid;
-                ++t_iter;
-
-//                std::cout << "len: " << strlen(block[i]) << "\n";
-//                if( len == size_t(-1)) {
-//                    len = strlen(block[i]);
-//                } else {
-                
-                assert( len == strlen(block[i]) );
-                
-//                }
-
-            } else {
-                block[i] = block[0];
-                assert( block[0] != 0 );
-            }
+        const char *states_c = in->scoring_matrix == 0 ? "ACGT" : "ARNDCQEGHILKMFPSTWYVBZX";
+        
+        const size_t n_states = strlen( states_c );
+        const std::vector<char> states( states_c, states_c + n_states);
+        
+        const char ** t_iter = t;
+        
+        //     typedef short score_t;
+        typedef float score_t;
+        const size_t VW = 16 / sizeof(score_t);
+        
+        
+        size_t block_start = 0;
+        
+        std::vector<size_t> p_sizes;
+        std::vector<const char*> p_ptrs;
+        for( const char ** p_iter = p; *p_iter != 0; ++p_iter ) {
+            p_sizes.push_back(strlen(*p_iter));
+            p_ptrs.push_back( *p_iter );
         }
-
-        ali.reset_profile( block );
-
-        for( size_t i = 0; i != p_ptrs.size(); ++i ) {
-            ali.align( p_ptrs[i], p_sizes[i], in->max_gap );
-            ali.opt_solution( p_sizes[i], in->max_gap, in->gap_open_pen, in->gap_extend_pen );
+        
+        
+        size_t len = strlen(*t_iter);
+        
+        aligner<score_t,VW> ali(len, in->scoring_matrix, states );
+        std::vector<double> max_scores( p_ptrs.size(), -std::numeric_limits<double>::infinity());
+        std::vector<size_t> max_text_idx( p_ptrs.size(), size_t(-1));
+        
+        while( true ) {
+            const char *block[VW];
+            std::fill( block, block + VW, (char *)0 );
             
-            for( size_t j = 0; j < num_valid;++j ) {
-                double score = ali.get_out_score(j);
-                
-                if( score > max_scores[i] ) {
-                    max_scores[i] = score;
-                    max_text_idx[i] = block_start + j;
+            size_t num_valid = 0;
+            
+            
+            
+            for( size_t i = 0; i < VW; ++i ) {
+                if( * t_iter != 0 ) {
+                    block[i] = *t_iter;
+                    ++num_valid;
+                    ++t_iter;
+                    
+                    //                std::cout << "len: " << strlen(block[i]) << "\n";
+                    //                if( len == size_t(-1)) {
+            //                    len = strlen(block[i]);
+                    //                } else {
+                        
+                        //assert( len == strlen(block[i]) );
+                    
+                    if( len != strlen(block[i]) ) {
+                        errno = TEXTLEN;
+                        
+                        return 0;
+                    }
+                    
+                    //                }
+                    
+                } else {
+                    block[i] = block[0];
+                    assert( block[0] != 0 );
                 }
-
-                //out[i * num_t + block_start + j] = x;
-
             }
-
+            
+            ali.reset_profile( block );
+            
+            for( size_t i = 0; i != p_ptrs.size(); ++i ) {
+                ali.align( p_ptrs[i], p_sizes[i], in->max_gap );
+                ali.opt_solution( p_sizes[i], in->max_gap, in->gap_open_pen, in->gap_extend_pen );
+                
+                for( size_t j = 0; j < num_valid;++j ) {
+                    double score = ali.get_out_score(j);
+                    
+                    if( score > max_scores[i] ) {
+                        max_scores[i] = score;
+                        max_text_idx[i] = block_start + j;
+                    }
+                    
+                    //out[i * num_t + block_start + j] = x;
+                    
+                }
+                
+            }
+            
+            
+            block_start += VW;
+            if( *t_iter == 0 ) {
+                break;
+            }
+            
         }
-
-
-        block_start += VW;
-        if( *t_iter == 0 ) {
-            break;
+        //computing the rest details of the alignment with the maximum score
+        for( size_t i = 0; i != p_ptrs.size(); ++i ) {
+            
+            size_t text_idx = max_text_idx[i];
+            double score = max_scores[i];
+            
+            assert( text_idx < num_t );
+            
+            gapmis_one_to_one( p[i], t[text_idx], in, &out[i] );
+            
         }
-
-    }
-    //computing the rest details of the alignment with the maximum score
-    for( size_t i = 0; i != p_ptrs.size(); ++i ) {
-        
-        size_t text_idx = max_text_idx[i];
-        double score = max_scores[i];
-        
-        assert( text_idx < num_t );
-        
-        gapmis_one_to_one( p[i], t[text_idx], in, &out[i] );
-        
+    } catch( std::bad_alloc x ) { /* in sutter we trust... LALALA my code is now exception safe LALALA */
+        errno = MALLOC;
+        return 0;
+    } catch( bad_char_error x ) {
+        errno = BADCHAR;
+        return 0;
     }
     
-
+    errno = 0;
     return 1;
 }
 

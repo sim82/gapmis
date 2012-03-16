@@ -9,7 +9,7 @@
 #include "EDNAFULL.h"
 #include "EBLOSUM62.h"
 
-#if 0
+
 /* Computes the optimal semi-global alignment with the maximum score between each pattern p and all texts t */
 unsigned int gapmis_many_to_many_opt ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
@@ -109,6 +109,8 @@ unsigned int gapmis_one_to_one_scr ( const char * p, const char * t, const struc
    
  } 
 
+#if 1
+ 
 /* Computes the optimal semi-global alignment between each pattern p and all texts t */
 unsigned int gapmis_many_to_many ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
  {
@@ -146,7 +148,7 @@ unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct ga
    unsigned int         n;
    unsigned int         m;
    unsigned int         i;
-   unsigned int         start;
+   unsigned int         start = 0;
 
    /* Checks the input parameters */
    n = strlen ( t );
@@ -261,13 +263,13 @@ static unsigned int dp_algorithm ( int ** G, unsigned int ** H, const char * t, 
              }	
 
            mis = G[i - 1][j - 1] + matching_score;
-	   gap = G[i][i];
-	   valM = j - i;
+	   gap = G[j][j];
+	   valM = i - j;
 
-	   if( i > j )	
+	   if( j > i )	
 	     {
-	       gap = G[j][j];
-               valM = i - j;
+	       gap = G[i][i];
+               valM = j - i;
 	     }
 
            if( gap > mis )	H[i][j] = valM;
@@ -307,8 +309,8 @@ static unsigned int dp_algorithm_scr ( int ** G, const char * t, unsigned int n,
             }	
 
            mis = G[i - 1][j - 1] + matching_score;
-	   gap = G[i][i];
-	   if( i > j )		gap = G[j][j];
+	   gap = G[j][j];
+	   if( j > i )		gap = G[i][i];
 	   if( i == j )		gap = mis - 1;
            G[i][j] = max ( mis, gap );
          }
@@ -1050,6 +1052,1313 @@ unsigned int results_many_to_many ( const char * filename, const char const ** p
    return ( 1 );	
  }
 
+
+#ifdef _USE_GPU
+
+unsigned int gapmis_one_to_many_opt_gpu ( const char * p1, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
+{
+	const char * p[] = { p1, NULL};
+
+	if ( in -> scoring_matrix > 1 )
+	{
+		errno = MATRIX;
+		return ( 0 );
+	}
+
+	unsigned int pats = get_number_of_sequences (p);
+	unsigned int txts = get_number_of_sequences (t);
+	unsigned int	maxPatLen = get_max_length (pats, p);
+	unsigned int	minTxtLen = get_min_length (txts, t);
+
+	if(maxPatLen > minTxtLen)
+	{
+		errno = LENGTH;
+      		return ( 0 );
+	}
+
+	if ( in -> max_gap >= minTxtLen )
+	{
+		errno = MAXGAP; 
+		return ( 0 );
+	}
+
+
+	int err = -1;
+
+	cl_platform_id * gpu_id = get_gpu_id(&err);
+	
+	if(err)
+	{	
+	 	errno = NOGPU;
+      		return ( 0 );
+	}
+
+	cl_device_id * dev_id = get_dev_id(gpu_id, &err);
+
+	if(err)
+	{	
+	 	errno = NOGPU;
+      		return ( 0 );
+	}
+
+	cl_context context = create_context(dev_id, &err);
+	if(err)
+	{	
+	 	errno = GPUERROR;
+      		return ( 0 );
+	}
+
+	cl_command_queue cmd_queue = create_cmd_queue (dev_id, context, &err);
+	if(err)
+	{	
+	 	errno = GPUERROR;
+      		return ( 0 );
+	}
+
+	cl_kernel kernel;
+
+	if(in->scoring_matrix==0)
+		kernel = load_kernel ("kernel_dna.cl", "gapmis_kernel", dev_id, context, &err);
+	else
+		kernel = load_kernel ("kernel_pro.cl", "gapmis_kernel", dev_id, context, &err);
+
+	if(err)
+	{	
+	 	errno = KERNEL;
+      		return ( 0 );
+	}
+
+	const unsigned int patGroupSize = 1;
+	const unsigned int txtGroupSize = 768;
+	unsigned int i, j;	
+	unsigned int patGroups = get_number_of_groups (pats, patGroupSize);
+	unsigned int txtGroups = get_number_of_groups (txts, txtGroupSize);	
+
+	const char * groupPatterns[patGroupSize+1];
+	set_null (groupPatterns, patGroupSize+1);
+
+	const char * groupTexts[txtGroupSize+1];
+	set_null (groupTexts, txtGroupSize+1);
+
+	float * groupScores;
+        groupScores = calloc (patGroupSize*txtGroupSize, sizeof(float) );
+
+	int groupMatch [patGroupSize];
+	float groupMatchScores [patGroupSize];
+	set_invalid(groupMatch,patGroupSize);
+	set_minimum(groupMatchScores,patGroupSize);	
+
+	for(i=0;i<patGroups;i++)
+	{
+		set_null (groupPatterns, patGroupSize+1);
+		initialize_pointers (groupPatterns,i,patGroupSize,p,pats);
+		set_invalid(groupMatch,patGroupSize);
+		set_minimum(groupMatchScores,patGroupSize);
+		
+		for(j=0;j<txtGroups;j++)
+		{			
+			set_null (groupTexts, txtGroupSize+1);
+			initialize_pointers (groupTexts,j,txtGroupSize,t,txts);
+
+			if(kernel_launch (kernel, context, cmd_queue, groupPatterns, groupTexts, in, groupScores))
+				return (0);			
+
+			update_group_match (groupScores,groupMatch,groupMatchScores,patGroupSize,txtGroupSize, pats, txts, i, j);
+		
+		}
+
+		for(j=0;j<patGroupSize;j++)
+		{
+			if(i*patGroupSize+j<pats)
+			{
+				groupPatterns[0] = p[i*patGroupSize+j];
+				groupPatterns[1] = NULL;
+
+				groupTexts[0] = t[groupMatch[j]];
+				groupTexts[1] = NULL;
+				
+				if(kernel_launch_l (kernel, context, cmd_queue, groupPatterns, groupTexts, in, groupScores,&out[i*patGroupSize+j]))
+					return (0);				
+			}
+		}
+	}
+	
+        free ( gpu_id );
+	free ( dev_id );
+        free ( groupScores );
+        clReleaseContext ( context );
+	clReleaseCommandQueue ( cmd_queue );
+        clReleaseKernel(kernel);
+
+	return ( 1 );
+ }
+
+unsigned int gapmis_many_to_many_opt_gpu ( const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out )
+{
+
+	if ( in -> scoring_matrix > 1 )
+	{
+		errno = MATRIX;
+		return ( 0 );
+	}
+
+	unsigned int pats = get_number_of_sequences (p);
+	unsigned int txts = get_number_of_sequences (t);
+	unsigned int	maxPatLen = get_max_length (pats, p);
+	unsigned int	minTxtLen = get_min_length (txts, t);
+
+	if(maxPatLen > minTxtLen)
+	{
+		errno = LENGTH;
+      		return ( 0 );
+	}
+
+	if ( in -> max_gap >= minTxtLen )
+	{
+		errno = MAXGAP; 
+		return ( 0 );
+	}
+
+
+	int err = -1;
+
+	cl_platform_id * gpu_id = get_gpu_id(&err);
+	
+	if(err)
+	{	
+	 	errno = NOGPU;
+      		return ( 0 );
+	}
+
+	cl_device_id * dev_id = get_dev_id(gpu_id, &err);
+
+	if(err)
+	{	
+	 	errno = NOGPU;
+      		return ( 0 );
+	}
+
+	cl_context context = create_context(dev_id, &err);
+	if(err)
+	{	
+	 	errno = GPUERROR;
+      		return ( 0 );
+	}
+
+	cl_command_queue cmd_queue = create_cmd_queue (dev_id, context, &err);
+	if(err)
+	{	
+	 	errno = GPUERROR;
+      		return ( 0 );
+	}
+
+	cl_kernel kernel;
+
+	if(in->scoring_matrix==0)
+		kernel = load_kernel ("kernel_dna.cl", "gapmis_kernel", dev_id, context, &err);
+	else
+		kernel = load_kernel ("kernel_pro.cl", "gapmis_kernel", dev_id, context, &err);
+
+	if(err)
+	{	
+	 	errno = KERNEL;
+      		return ( 0 );
+	}
+
+	const unsigned int patGroupSize = 1024;
+	const unsigned int txtGroupSize = 32;
+	unsigned int i, j;	
+	unsigned int patGroups = get_number_of_groups (pats, patGroupSize);
+	unsigned int txtGroups = get_number_of_groups (txts, txtGroupSize);	
+
+	const char * groupPatterns[patGroupSize+1];
+	set_null (groupPatterns, patGroupSize+1);
+
+	const char * groupTexts[txtGroupSize+1];
+	set_null (groupTexts, txtGroupSize+1);
+
+	float * groupScores;
+        groupScores = calloc (patGroupSize*txtGroupSize, sizeof(float) );
+
+	int groupMatch [patGroupSize];
+	float groupMatchScores [patGroupSize];
+	set_invalid(groupMatch,patGroupSize);
+	set_minimum(groupMatchScores,patGroupSize);	
+      
+	for(i=0;i<patGroups;i++)
+	{
+		set_null (groupPatterns, patGroupSize+1);
+		initialize_pointers (groupPatterns,i,patGroupSize,p,pats);
+		set_invalid(groupMatch,patGroupSize);
+		set_minimum(groupMatchScores,patGroupSize);
+		
+		for(j=0;j<txtGroups;j++)
+		{			
+			set_null (groupTexts, txtGroupSize+1);
+			initialize_pointers (groupTexts,j,txtGroupSize,t,txts);
+
+			if(kernel_launch (kernel, context, cmd_queue, groupPatterns, groupTexts, in, groupScores))
+				return (0);			
+			
+			update_group_match (groupScores,groupMatch,groupMatchScores,patGroupSize,txtGroupSize, pats, txts, i, j);
+		
+		}
+
+		for(j=0;j<patGroupSize;j++)
+		{
+			if(i*patGroupSize+j<pats)
+			{
+				groupPatterns[0] = p[i*patGroupSize+j];
+				groupPatterns[1] = NULL;
+
+				groupTexts[0] = t[groupMatch[j]];
+				groupTexts[1] = NULL;
+				
+				if(kernel_launch_l (kernel, context, cmd_queue, groupPatterns, groupTexts, in, groupScores,&out[i*patGroupSize+j]))
+					return (0);				
+			}
+		}
+	}
+
+	free ( gpu_id );
+	free ( dev_id );
+        free ( groupScores );
+        clReleaseContext ( context );
+	clReleaseCommandQueue ( cmd_queue );
+        clReleaseKernel(kernel);
+	
+        return ( 1 );
+ }
+
+
+static void kernel_one_to_one_dna (unsigned int groupID, unsigned int localID, unsigned int * patsVec, unsigned int * txtsVec, int * argsVec, int * txtsLenVec, float * pensVec, int * hproVec, int * dproVec, float * scrsVec, unsigned int ** H, struct gapmis_align * out, int * start)
+{
+	int i, j, cur_diag_nxt, mis, gap,
+	    max_gap = argsVec[2], 
+	    blockSize = argsVec[3],
+	    maxPatLen = argsVec[4],
+	    dproVecGsize = argsVec[5],
+	    hproVecGsize = argsVec[6],
+	    m = argsVec[groupID + 7],
+	    n = txtsLenVec[localID],
+	    doffset = 1,gapmismax;
+
+	unsigned int j_min, j_max, abs_ij, patChar, txtChar;
+
+	float temp_score, score = -1000000.0;		
+	
+	unsigned int min_gap, where;
+
+	for( i = 0; i < n + 1 ; i++ )      H[i][0] = i;
+	for( j = 0; j < m + 1 ; j++ )      H[0][j] = j;
+
+	if(max ( 1,  m - max_gap )==1)
+	{
+		score = ( m - 1 ) * pensVec[1] + pensVec[0];		 
+               	min_gap   = m;
+               	where     = 1;		
+              	(*start)       = 0;	
+	}	
+
+	for( i = 1; i <= m; i++ )
+	{
+		patChar = patsVec [groupID * maxPatLen + i - 1];
+
+		j_min = max ( 1,  i - max_gap );
+
+		j_max = min ( n,  i + max_gap );
+
+		if(i<= max_gap+1)
+		{
+			cur_diag_nxt = 0;
+		}
+		else
+		{
+			cur_diag_nxt = hproVec[hproVecGsize*groupID + doffset*blockSize + localID];		
+			doffset++;		
+		}
+
+		for( j = j_min; j <= j_max; j++)
+		{
+			txtChar = txtsVec[(j-1)*blockSize + localID]; 
+
+			mis = cur_diag_nxt + EDNAFULL_matrix [txtChar][patChar];
+			
+			if(j<i)
+			{	
+				abs_ij = i-j;
+				gap = dproVec[dproVecGsize*groupID + j*blockSize + localID];
+			}
+			else
+			{	
+				abs_ij = j-i;
+				gap = dproVec[dproVecGsize*groupID + i*blockSize + localID]; 
+			}
+
+			if(i==j)
+			{
+				gap = mis - 1;
+				dproVec[dproVecGsize*groupID + j*blockSize + localID]= mis;
+			}
+	
+			if( gap > mis )	H[j][i] = abs_ij;
+
+			cur_diag_nxt = hproVec[hproVecGsize*groupID + j*blockSize + localID];
+	
+			gapmismax = max ( mis, gap );
+		
+			hproVec[hproVecGsize*groupID + j*blockSize + localID] = gapmismax;
+
+			if(i==m)
+			{				
+				if(abs_ij<=max_gap)
+				{
+					temp_score = (float)gapmismax;			
+				
+					if(abs_ij>0)
+						temp_score += ( abs_ij - 1 ) * pensVec[1] + pensVec[0];			
+
+					if(temp_score>score)
+					{
+						score = temp_score;
+
+						if(i>j)
+						{							
+               						 min_gap   = m-j;
+               						 where     = 1;		
+              						 (*start)  = j;		
+						}
+
+						if(i==j)
+						{
+							
+            						min_gap   = 0;
+            						where     = 0;		
+            						(*start)  = m;		
+						}
+
+						if(i<j)
+						{						  
+						       min_gap   = j-m;
+						       where     = 2;		
+						       ( *start )   = j;		
+						}								
+					}
+				}
+			}								
+		}
+	}
+
+	scrsVec[groupID*blockSize+localID]=score;
+	out->max_score = score;
+	out->min_gap = min_gap;
+	out->where = where;	
+}
+
+static void kernel_one_to_one_pro (unsigned int groupID, unsigned int localID, unsigned int * patsVec, unsigned int * txtsVec, int * argsVec, int * txtsLenVec, float * pensVec, int * hproVec, int * dproVec, float * scrsVec, unsigned int ** H, struct gapmis_align * out, int * start)
+{
+	int i, j, cur_diag_nxt, mis, gap,
+	    max_gap = argsVec[2], 
+	    blockSize = argsVec[3],
+	    maxPatLen = argsVec[4],
+	    dproVecGsize = argsVec[5],
+	    hproVecGsize = argsVec[6],
+	    m = argsVec[groupID + 7],
+	    n = txtsLenVec[localID],
+	    doffset = 1,gapmismax;
+
+	unsigned int j_min, j_max, abs_ij, patChar, txtChar;
+
+	float temp_score, score = -1000000.0;		
+	
+	unsigned int min_gap, where;
+
+	for( i = 0; i < n + 1 ; i++ )      H[i][0] = i;
+	for( j = 0; j < m + 1 ; j++ )      H[0][j] = j;
+
+	if(max ( 1,  m - max_gap )==1)
+	{
+		score = ( m - 1 ) * pensVec[1] + pensVec[0];		 
+               	min_gap   = m;
+               	where     = 1;		
+              	(*start)       = 0;	
+	}	
+
+	for( i = 1; i <= m; i++ )
+	{
+		patChar = patsVec [groupID * maxPatLen + i - 1];
+
+		j_min = max ( 1,  i - max_gap );
+
+		j_max = min ( n,  i + max_gap );
+
+		if(i<= max_gap+1)
+		{
+			cur_diag_nxt = 0;
+		}
+		else
+		{
+			cur_diag_nxt = hproVec[hproVecGsize*groupID + doffset*blockSize + localID];		
+			doffset++;		
+		}
+
+		for( j = j_min; j <= j_max; j++)
+		{
+			txtChar = txtsVec[(j-1)*blockSize + localID]; 
+
+			mis = cur_diag_nxt + EBLOSUM62_matrix [txtChar][patChar];
+			
+			if(j<i)
+			{	
+				abs_ij = i-j;
+				gap = dproVec[dproVecGsize*groupID + j*blockSize + localID];
+			}
+			else
+			{	
+				abs_ij = j-i;
+				gap = dproVec[dproVecGsize*groupID + i*blockSize + localID]; 
+			}
+
+			if(i==j)
+			{
+				gap = mis - 1;
+				dproVec[dproVecGsize*groupID + j*blockSize + localID]= mis;
+			}
+	
+			if( gap > mis )	H[j][i] = abs_ij;
+
+			cur_diag_nxt = hproVec[hproVecGsize*groupID + j*blockSize + localID];
+	
+			gapmismax = max ( mis, gap );
+		
+			hproVec[hproVecGsize*groupID + j*blockSize + localID] = gapmismax;
+
+			if(i==m)
+			{				
+				if(abs_ij<=max_gap)
+				{
+					temp_score = (float)gapmismax;				
+		
+				
+					if(abs_ij>0)
+						temp_score += ( abs_ij - 1 ) * pensVec[1] + pensVec[0];			
+
+					if(temp_score>score)
+					{
+						score = temp_score;
+
+						if(i>j)
+						{							
+               						 min_gap   = m-j;
+               						 where     = 1;		
+              						 (*start)  = j;		
+						}
+
+						if(i==j)
+						{							
+            						min_gap   = 0;
+            						where     = 0;		
+            						(*start)  = m;		
+						}
+
+						if(i<j)
+						{						  
+						       min_gap   = j-m;
+						       where     = 2;		
+						       ( *start ) = j;		
+						}								
+					}
+				}
+			}								
+		}
+	}
+
+	scrsVec[groupID*blockSize+localID]=score;
+	out->max_score = score;
+	out->min_gap = min_gap;
+	out->where = where;
+}
+
+static unsigned int kernel_launch (cl_kernel kernel, cl_context context, cl_command_queue cmd_queue, const char const ** p, const char const ** t, const struct gapmis_params * in, float * scores)
+{
+        int error=1;
+	unsigned int	pats = get_number_of_sequences (p);
+	unsigned int	txts = get_number_of_sequences (t);
+
+	unsigned int	maxTxtLen = get_max_length (txts, t);
+	unsigned int	maxPatLen = get_max_length (pats, p);
+	unsigned int	pBlockSize = get_pblock_size (txts,32); 
+	unsigned int 	hproVecLen = pats * pBlockSize * (maxTxtLen + 1);
+	unsigned int 	dproVecLen = pats * pBlockSize * (maxPatLen + 1);
+	
+	unsigned int * txtsVec = calloc(maxTxtLen*pBlockSize, sizeof(unsigned int));
+	unsigned int * patsVec = calloc(maxPatLen*pats, sizeof(unsigned int));
+	         int * argsVec = malloc(sizeof(int)*(pats+7));		
+		 int * txtsLenVec = calloc(pBlockSize,sizeof(int));
+	       float * pensVec = malloc(sizeof(float)*2);
+	         int * hproVec = calloc(hproVecLen,sizeof(int));
+	         int * dproVec = calloc(dproVecLen,sizeof(int));
+
+	cl_int err;	
+
+	if(patsVec==NULL   || txtsVec==NULL      || argsVec==NULL || 
+           pensVec == NULL || txtsLenVec == NULL || hproVec==NULL || 
+	   dproVec==NULL)
+	{	
+	 	errno = MALLOC;
+      		return ( 1 );
+	}
+
+	fill_txtsVec (txts, pBlockSize, t, txtsVec, in->scoring_matrix);
+	fill_patsVec (pats, maxPatLen, p, patsVec, in->scoring_matrix);
+	fill_argsVec (pats, txts, p, in->max_gap, pBlockSize, maxPatLen, maxTxtLen, argsVec);
+	fill_txtsLenVec (txts, t, txtsLenVec);
+
+	pensVec[0] = - in -> gap_open_pen;
+	pensVec[1] = - in -> gap_extend_pen;	
+	
+
+	cl_mem txtsVec_device = malloc_device (context, (maxTxtLen*pBlockSize)*sizeof(unsigned int), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+	
+	init_device_mem_uint (context, cmd_queue, txtsVec_device, txtsVec, maxTxtLen*pBlockSize, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+	
+	cl_mem patsVec_device = malloc_device (context, (maxPatLen*pats)*sizeof(unsigned int), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	init_device_mem_uint (context, cmd_queue, patsVec_device, patsVec,maxPatLen*pats, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	cl_mem argsVec_device = malloc_device (context, (pats+7)*sizeof(int), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	init_device_mem_int (context, cmd_queue, argsVec_device, argsVec, pats+7, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	cl_mem txtsLenVec_device = malloc_device (context, pBlockSize*sizeof(int), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	init_device_mem_int (context, cmd_queue, txtsLenVec_device, txtsLenVec, pBlockSize, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	cl_mem pensVec_device = malloc_device (context, 2*sizeof(float), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	init_device_mem_float (context, cmd_queue, pensVec_device, pensVec, 2, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	cl_mem hproVec_device = malloc_device (context, hproVecLen*sizeof(int), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	init_device_mem_int (context, cmd_queue, hproVec_device, hproVec, hproVecLen, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	cl_mem dproVec_device = malloc_device (context, dproVecLen*sizeof(int), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	init_device_mem_int (context, cmd_queue, dproVec_device, dproVec, dproVecLen, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	cl_mem scrsVec_device = malloc_device (context, (pats*pBlockSize)*sizeof(float), &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	err = clFinish(cmd_queue);
+	if(error)
+	{
+	 	errno = GPUERROR;
+      		return ( 1 );	
+	}
+
+	set_kernel_arguments (kernel, cmd_queue, patsVec_device, txtsVec_device, argsVec_device, txtsLenVec_device, pensVec_device, hproVec_device, dproVec_device, scrsVec_device);
+
+	err = clFinish(cmd_queue);
+	if(error)
+	{
+	 	errno = GPUERROR;
+      		return ( 1 );	
+	}	
+
+	size_t WorkSizeGlobal[] = {pBlockSize * pats};
+	size_t WorkSizeLocal[] = {pBlockSize};
+
+	err = clEnqueueNDRangeKernel(cmd_queue, kernel, 1, NULL, WorkSizeGlobal, WorkSizeLocal, 0, NULL, NULL);
+	if(error)
+	{
+	 	errno = KERNEL;
+      		return ( 1 );	
+	}
+
+	err=clFinish(cmd_queue);
+	if(error)
+	{
+	 	errno = GPUERROR;
+      		return ( 1 );	
+	}	
+
+	read_device_mem_float (cmd_queue, pats*pBlockSize, scores, scrsVec_device, &error);
+	if(error)
+	{
+	 	errno = GPUMALLOC;
+      		return ( 1 );	
+	}
+
+	free (txtsVec);
+	free (patsVec);
+	free (argsVec);
+	free (txtsLenVec);
+	free (pensVec);
+	free (hproVec);
+	free (dproVec);
+
+	clReleaseMemObject(patsVec_device);
+	clReleaseMemObject(txtsVec_device);
+	clReleaseMemObject(argsVec_device);
+	clReleaseMemObject(txtsLenVec_device);
+	clReleaseMemObject(pensVec_device);
+	clReleaseMemObject(hproVec_device);
+	clReleaseMemObject(dproVec_device);
+	clReleaseMemObject(scrsVec_device);
+
+	return (0);
+}
+
+static unsigned int kernel_launch_l (cl_kernel kernel, cl_context context, cl_command_queue cmd_queue, const char const ** p, const char const ** t, const struct gapmis_params * in, float * scores, struct gapmis_align * out)
+{
+	unsigned int 	i;
+		 int	start;
+	unsigned int	pats = 1;
+	unsigned int	txts = 1;
+
+	unsigned int	maxTxtLen = strlen(t[0]);
+	unsigned int	maxPatLen = strlen(p[0]);
+	unsigned int	pBlockSize = 1;
+	unsigned int 	hproVecLen = pats * pBlockSize * (maxTxtLen + 1);
+	unsigned int 	dproVecLen = pats * pBlockSize * (maxPatLen + 1);
+	
+	unsigned int * txtsVec = calloc(maxTxtLen*pBlockSize, sizeof(unsigned int));
+	unsigned int * patsVec = calloc(maxPatLen*pats, sizeof(unsigned int));
+	         int * argsVec = malloc(sizeof(int)*(pats+7));		
+		 int * txtsLenVec = calloc(pBlockSize,sizeof(int));
+	       float * pensVec = malloc(sizeof(float)*2);
+	         int * hproVec = calloc(hproVecLen,sizeof(int));
+	         int * dproVec = calloc(dproVecLen,sizeof(int));
+       unsigned int ** H;
+
+	H = malloc((maxTxtLen+1)*sizeof(unsigned int*));
+	H[0] = calloc ((maxTxtLen+1)*(maxPatLen+1), sizeof(unsigned int));
+	for ( i = 1 ; i < maxTxtLen + 1 ; ++ i )
+     		H[i] = (void*)H[0] + i*(maxPatLen+1)* sizeof(unsigned int);
+
+
+	if(patsVec==NULL   || txtsVec==NULL      || argsVec==NULL || 
+           pensVec == NULL || txtsLenVec == NULL || hproVec==NULL || 
+	   dproVec==NULL || H==NULL)
+	{
+	 	errno = MALLOC;
+      		return ( 1 );	
+	}
+
+	fill_txtsVec (txts, pBlockSize, t, txtsVec,in->scoring_matrix);
+	fill_patsVec (pats, maxPatLen, p, patsVec,in->scoring_matrix);
+	fill_argsVec (pats, txts, p, in->max_gap, pBlockSize, maxPatLen, maxTxtLen, argsVec);
+	fill_txtsLenVec (txts, t, txtsLenVec);
+
+	pensVec[0] = - in -> gap_open_pen;
+	pensVec[1] = - in -> gap_extend_pen;
+
+
+	if(in->scoring_matrix==0)
+		kernel_one_to_one_dna (0, 0, patsVec, txtsVec, argsVec, txtsLenVec, pensVec, hproVec, dproVec, scores, H, out, &start);
+	else
+		kernel_one_to_one_pro (0, 0, patsVec, txtsVec, argsVec, txtsLenVec, pensVec, hproVec, dproVec, scores, H, out, &start);  
+
+   	if ( out -> min_gap > 0 ) 
+        	backtracing ( H, maxPatLen, maxTxtLen, start, out );
+
+
+   	if ( out -> where == 1 ) 
+     		num_mismatch ( t[0], maxTxtLen, p[0], maxPatLen, out );
+   	else                   
+     		num_mismatch ( p[0], maxPatLen, t[0], maxTxtLen, out );
+
+	free (txtsVec);
+	free (patsVec);
+	free (argsVec);
+	free (txtsLenVec);
+	free (pensVec);
+	free (hproVec);
+	free (dproVec);
+        free ( H[0] );
+	free (H);
+	
+	return 0;
+}
+
+static cl_platform_id * get_gpu_id(int * error)
+{
+	cl_platform_id * gpu_id = NULL;
+
+	cl_uint platforms_total=0;
+	
+	cl_int err;
+
+	err = clGetPlatformIDs (0, NULL, &platforms_total);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+	if(platforms_total<=0)
+	{
+		*error = 1;
+		return NULL;
+	}
+	cl_platform_id * gpu_id_vec = malloc(sizeof(cl_platform_id) * platforms_total);
+
+	err = clGetPlatformIDs (platforms_total, gpu_id_vec, NULL);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return NULL;
+	}
+	gpu_id = &gpu_id_vec[0];
+
+	*error = 0;
+
+	return gpu_id;
+}
+
+static cl_device_id * get_dev_id(cl_platform_id * gpu_id, int * error)
+{
+	cl_device_id * dev_id = NULL;
+
+	cl_uint devices_total;
+
+	cl_int err;
+	
+	err = clGetDeviceIDs(*gpu_id, CL_DEVICE_TYPE_GPU, 0, NULL, &devices_total);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	if(devices_total<=0)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	cl_device_id * dev_id_vec = malloc(sizeof(cl_device_id) * devices_total);
+
+	err = clGetDeviceIDs(*gpu_id, CL_DEVICE_TYPE_ALL, devices_total, dev_id_vec, NULL);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	dev_id = &dev_id_vec[0];
+
+	*error = 0;
+	return dev_id;
+}
+
+static cl_context create_context(cl_device_id * dev_id, int * error)
+{
+
+	const cl_device_id * const_dev_id = dev_id;
+
+	cl_context context;
+
+	cl_int err;
+
+	context = clCreateContext (0,1,const_dev_id,NULL,NULL, &err);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+	
+	*error = 0;
+	return context;
+}
+
+static cl_command_queue create_cmd_queue (cl_device_id * dev_id, cl_context context, int * error)
+{
+	cl_int err;
+
+	cl_command_queue cmd_queue;
+
+	cmd_queue = clCreateCommandQueue(context, *dev_id, 0, &err);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	return cmd_queue;
+}
+
+static cl_kernel load_kernel (char * name, char * kernel_name, cl_device_id * dev_id, cl_context context, int * error)
+{
+	cl_kernel kernel;
+
+	FILE * fp = fopen(name, "r");
+
+	if(fp==NULL)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	char * source;
+	size_t size;
+
+	fseek(fp, 0, SEEK_END);
+	size = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+		
+	source = malloc((size+1)*sizeof(char));
+	
+	size = fread(source, 1, size, fp);
+
+	fclose(fp);
+	
+	source[size] = '\0';
+
+	cl_int err;
+
+	cl_program program = clCreateProgramWithSource (context, 1, (const char **) &source, &size, &err);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
+
+	cl_build_status status;
+
+	clGetProgramBuildInfo(program, *dev_id, CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
+
+	if(status!=CL_BUILD_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	kernel = clCreateKernel(program, kernel_name , &err);
+
+	if(err!=CL_SUCCESS)
+	{
+		*error = 1;
+		return NULL;
+	}
+
+	*error = 0;
+        free ( source );
+	clReleaseProgram(program);
+	return kernel;
+}
+
+static cl_mem malloc_device (cl_context context, size_t size, int * error)
+{
+	cl_mem mem = NULL;
+
+	cl_int err;
+
+	mem = clCreateBuffer(context, CL_MEM_READ_WRITE, size, NULL, &err);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return NULL;
+	}
+
+	*error=0;
+	return mem;	
+}
+
+static void init_device_mem_int (cl_context context, cl_command_queue cmd_queue, cl_mem dev_mem, int * mem, size_t size, int * error)
+{
+	cl_int err;
+
+	err = clEnqueueWriteBuffer(cmd_queue, dev_mem, CL_FALSE, 0, size * sizeof(int), mem, 0, NULL, NULL);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	err = clFinish(cmd_queue);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	*error = 0;
+	return;
+}
+
+static void init_device_mem_uint (cl_context context, cl_command_queue cmd_queue, cl_mem dev_mem, unsigned int * mem, size_t size, int * error)
+{
+	cl_int err;
+
+	err = clEnqueueWriteBuffer(cmd_queue, dev_mem, CL_FALSE, 0, size * sizeof(unsigned int), mem, 0, NULL, NULL);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	err = clFinish(cmd_queue);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	*error = 0;
+	return;
+}
+
+static void init_device_mem_float (cl_context context, cl_command_queue cmd_queue, cl_mem dev_mem, float * mem, size_t size, int * error)
+{
+	cl_int err;
+
+	err = clEnqueueWriteBuffer(cmd_queue, dev_mem, CL_FALSE, 0, size * sizeof(float), mem, 0, NULL, NULL);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	err = clFinish(cmd_queue);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	*error = 0;
+	return;
+}
+
+static void set_kernel_arguments (cl_kernel kernel, cl_command_queue cmd_queue, cl_mem cl_mem0, cl_mem cl_mem1, cl_mem cl_mem2, cl_mem cl_mem3, cl_mem cl_mem4, cl_mem cl_mem5, cl_mem cl_mem6, cl_mem cl_mem7)
+{
+	clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *) &cl_mem0);
+	clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *) &cl_mem1);
+	clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *) &cl_mem2);
+	clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *) &cl_mem3);
+	clSetKernelArg(kernel, 4, sizeof(cl_mem), (void *) &cl_mem4);
+	clSetKernelArg(kernel, 5, sizeof(cl_mem), (void *) &cl_mem5);
+	clSetKernelArg(kernel, 6, sizeof(cl_mem), (void *) &cl_mem6);
+	clSetKernelArg(kernel, 7, sizeof(cl_mem), (void *) &cl_mem7);
+	clFinish(cmd_queue);
+}
+
+static void read_device_mem_float (cl_command_queue cmd_queue, size_t size, float * mem, cl_mem dev_mem, int * error)
+{
+	cl_int err;
+
+	err = clEnqueueReadBuffer(cmd_queue, dev_mem, CL_FALSE, 0, size * sizeof(float), mem, 0, NULL, NULL);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+
+	err = clFinish(cmd_queue);
+
+	if(err!=CL_SUCCESS)
+	{	
+		*error = 1;
+		return;
+	}
+	
+	*error = 0;
+	return;
+}
+
+static void update_group_match (float * groupScores, int * groupMatch, float * groupMatchScores, unsigned int patGroupSize, unsigned int txtGroupSize, int pats, int txts, int patGroupIndex, int txtGroupIndex)
+{
+	int i,j;
+
+	float max_score;
+	int position=-1;
+
+	for(i=0;i<patGroupSize;i++)
+	{
+		if(patGroupIndex*patGroupSize+i<pats)
+		{		
+			max_score=groupMatchScores[i];
+			position=groupMatch[i];
+	
+			for(j=0;j<txtGroupSize;j++)
+			{		
+				if( groupScores[i*txtGroupSize+j] > max_score && txtGroupIndex*txtGroupSize + j < txts)
+				{
+					max_score = groupScores[i*txtGroupSize+j];
+					position = txtGroupIndex*txtGroupSize+j;	
+				}
+			}
+
+			groupMatch[i]=position;
+			groupMatchScores[i]=max_score;
+		}
+	}
+}
+
+static void set_invalid(int * groupMatch, int groupSize)
+{
+	int i;
+	for(i=0;i<groupSize;i++)
+		groupMatch[i]=-1;
+}
+
+static void set_minimum(float * groupMatchScores, int groupSize)
+{
+	int i;
+	for(i=0;i<groupSize;i++)
+		groupMatchScores[i]=-DBL_MAX;
+}
+
+static unsigned int get_number_of_groups (int elements, int groupSize)
+{	
+	unsigned int div32 = elements / groupSize;
+	unsigned int mod32 = elements % groupSize;
+	
+	unsigned int groups = mod32!=0?(div32+1):div32;	
+	
+	return groups;
+}
+
+static void set_null (const char ** input, int size)
+{
+	int i;
+	for(i=0;i<size;i++)
+		input[i]=NULL;
+}
+
+static void initialize_pointers (const char * groupPatterns[], int groupIndex, int groupSize, const char const ** source, int sourceSize)
+{
+	int i, elements = sourceSize - groupIndex * groupSize;
+
+	if(elements>=groupSize)
+	{
+		for(i=0;i<groupSize;i++)
+			groupPatterns[i]=source[i + groupIndex * groupSize];
+	}
+	else
+	{
+		for(i=0;i<elements;i++)
+			groupPatterns[i]=source[i + groupIndex * groupSize];
+
+		for(i=elements;i<groupSize;i++)
+			groupPatterns[i]=NULL;
+	}
+}
+
+static unsigned int get_number_of_sequences (const char ** input)
+{
+	unsigned int 	total = 0;
+	const char 	** Tmp;
+
+	for ( Tmp = input; *Tmp; ++ Tmp, ++ total );
+
+	return total;  
+}
+
+static unsigned int get_max_length (unsigned int total, const char ** input)
+{
+	unsigned int	i, curLen, maxLen=0;
+   
+	for (i=0;i<total;i++)
+	{
+		curLen = strlen(input[i]);
+		if(curLen>maxLen)
+			maxLen = curLen;
+	} 
+
+	return maxLen;
+}
+
+static unsigned int get_min_length (unsigned int total, const char ** input)
+{
+	unsigned int	i, curLen, minLen=4294967295u;
+   
+	for (i=0;i<total;i++)
+	{
+		curLen = strlen(input[i]);
+		if(curLen<minLen)
+			minLen = curLen;
+	} 
+
+	return minLen;
+}
+
+static unsigned int get_pblock_size (unsigned int input, unsigned int mult)
+{
+	unsigned int div32 = input / mult;
+	unsigned int mod32 = input % mult;
+	
+	unsigned int result = mod32!=0?(div32+1)*mult:div32*mult;	
+	
+	return result;
+}
+
+static void fill_txtsVec (unsigned int total, unsigned int blockSize, const char const ** in, unsigned int * outVec, int matrix)
+{
+	unsigned int i,j,len;
+	
+	if(matrix==0)
+		for(i=0;i<total;i++)
+		{		
+			len = strlen(in[i]);
+	
+			for(j=0;j<len;j++)
+				outVec[j*blockSize + i] = nuc_char_to_index ( in[i][j]);
+		}
+	else
+		for(i=0;i<total;i++)
+		{		
+			len = strlen(in[i]);
+	
+			for(j=0;j<len;j++)
+				outVec[j*blockSize + i] = pro_char_to_index ( in[i][j]);
+		}
+}
+
+static void fill_patsVec (unsigned int total, unsigned int blockSize, const char const ** in, unsigned int * outVec, int matrix)
+{
+	unsigned int i,j,len,spos;
+
+	if(matrix==0)
+		for(i=0;i<total;i++)
+		{		
+			len = strlen(in[i]);
+			spos = i * blockSize;
+
+			for(j=0;j<len;j++)
+				outVec[spos + j] = nuc_char_to_index ( in[i][j]);
+		}
+	else
+		for(i=0;i<total;i++)
+		{		
+			len = strlen(in[i]);
+			spos = i * blockSize;
+
+			for(j=0;j<len;j++)
+				outVec[spos + j] = pro_char_to_index ( in[i][j]);
+		}	
+}
+
+static void fill_argsVec (unsigned int totalPats, unsigned int totalTxts, const char const ** in, unsigned int max_gap, unsigned int pBlockSize, unsigned int maxPatLen, unsigned int maxTxtLen, int * outVec)
+{
+	unsigned int i;
+
+	outVec[0] = totalPats;
+	outVec[1] = totalTxts;
+	outVec[2] = max_gap;
+	outVec[3] = pBlockSize;
+	outVec[4] = maxPatLen;
+	outVec[5] = pBlockSize * (maxPatLen + 1);
+	outVec[6] = pBlockSize * (maxTxtLen + 1);
+
+	for(i=7;i<totalPats+7;i++)		
+		outVec[i] = strlen(in[i-7]);
+}
+
+static void fill_txtsLenVec (unsigned int totalTxts, const char const ** in, int * outVec)
+{
+	unsigned int i;
+
+	for(i=0;i<totalTxts;i++)		
+		outVec[i] = strlen(in[i]);
+}
+
+#endif
+
+
+
+
 int main ( int argc, char * argv [] )
  {
    struct gapmis_params         in;
@@ -1069,10 +2378,9 @@ int main ( int argc, char * argv [] )
    int                          max_alloc_query;
    int                          cur_alloc_query;
    int                          i;
+   double			scr;
    
    /* HERE WE READ THE DATA */
-   printf("\nReading the data...\n");
-
    max_alloc_target = max_alloc_query = 0;
    cur_alloc_target = cur_alloc_query = 0;
 
@@ -1154,28 +2462,62 @@ int main ( int argc, char * argv [] )
    in . gap_open_pen   = 10;
    in . gap_extend_pen = 0.5;
 
+///////////////////////////////////////////////////////// SEQUENTIAL CALLS /////////////////////////////////////////////////////////////////////////
+
    /* ONE_TO_ONE test */
-//   if ( gapmis_one_to_one ( querys[0], targets[0], &in, out ) )
-//     {
-       /* ONE_TO_ONE result */
-//       results_one_to_one ( "ONE_TO_ONE", querys[0], querysId[0], targets[0], targetsId[0], &in, &out[0] );
-//     }
+   if ( gapmis_one_to_one ( querys[0], targets[0], &in, out ) )
+     {
+      /* ONE_TO_ONE result */
+       results_one_to_one ( "ONE_TO_ONE", querys[0], querysId[0], targets[0], targetsId[0], &in, &out[0] );
+     }
 
    /* ONE_TO_MANY test */
-//   if ( gapmis_one_to_many ( querys[0], targets, &in, out ) )
-//    {
-      /* ONE_TO_MANY result */
-//      results_one_to_many ( "ONE_TO_MANY", querys[0], querysId[0], targets, targetsId, &in, out );
-//    }
+   if ( gapmis_one_to_many ( querys[0], targets, &in, out ) )
+    {
+    /* ONE_TO_MANY result */
+      results_one_to_many ( "ONE_TO_MANY", querys[0], querysId[0], targets, targetsId, &in, out );
+    }
    
-   printf("\nAlignment...\n");
    /* MANY_TO_MANY test */
    if ( gapmis_many_to_many ( querys, targets, &in, out ) )
     {
-      printf("\nWriting the results...\n");
       /* MANY_TO_MANY results */
 //       results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
     }
+   /* ONE_TO_ONE_scr test */
+   if ( ! ( gapmis_one_to_one_scr ( querys[0], targets[0], &in, &scr ) ) )
+     {
+       printf ("\nErrno:%d", errno);
+     }
+
+   /* ONE_TO_MANY_opt test */
+   if ( ! ( gapmis_one_to_many_opt ( querys[0], targets, &in, out ) ) )
+     {
+       printf ("\nErrno:%d", errno);
+     }
+   
+   /* MANY_TO_MANY_opt test */
+   if ( ! ( gapmis_many_to_many_opt ( querys, targets, &in, out ) ) )
+     {
+       printf ("\nErrno:%d", errno);
+     }
+
+///////////////////////////////////////////////////////// GPU CALLS /////////////////////////////////////////////////////////////////////////
+#ifdef _USE_GPU
+   /* ONE_TO_MANY_opt test */
+   if ( ! ( gapmis_one_to_many_opt_gpu ( querys[0], targets, &in, out ) ) )
+     {
+       printf ("\nErrno:%d", errno);
+     }
+   
+   /* MANY_TO_MANY_opt test */
+   if ( ! ( gapmis_many_to_many_opt_gpu ( querys, targets, &in, out ) ) )
+     {
+       printf ("\nErrno:%d", errno);
+     }
+/* */
+#endif
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
    /* Deallocation */
    for ( i = 0; i < cur_alloc_query; ++ i )
@@ -1195,7 +2537,6 @@ int main ( int argc, char * argv [] )
    free ( targets );
 
    free ( out );
-
 
    return ( 0 );
  }

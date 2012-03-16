@@ -12,18 +12,17 @@ CXXFLAGS = -O3 -Wall -msse3 -I.
 #CFLAGS = -Wall -g -march=native
 #CXXFLAGS = -Wall -g -I. -march=native
 
-OFLAGS = -msse3 -O2 -fomit-frame-pointer -funroll-loops  
 
-all: gapmis_vec gapmis_ntom gapmis
+all: gapmis
 
 gapmis: $(OBJ) vec_cpu/gapmis_vec.o
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) $(OFLAGS) vec_cpu/gapmis_vec.o
 
-gapmis_vec: $(OBJ_VEC)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_VEC)
-
-gapmis_ntom: $(OBJ_NTOM)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_NTOM) -lpthread -lboost_thread
+# gapmis_vec: $(OBJ_VEC)
+# 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_VEC)
+# 
+# gapmis_ntom: $(OBJ_NTOM)
+# 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_NTOM) -lpthread -lboost_thread
 clean:
 	rm -f gapmis $(OBJ) $(OBJ_VEC) $(OBJ_NTOM) *~ 
 

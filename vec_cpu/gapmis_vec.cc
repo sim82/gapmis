@@ -10,11 +10,13 @@
 #include <iomanip>
 #include <algorithm>
 #include <vector>
-
+#include <limits>
 //#include "functions.h"
-#include "gapmis_vec.h"
-#include "EDNAFULL.h"
-#include "EBLOSUM62.h"
+#define _USE_SSE
+#define _HACK_CLEAN_NAMESPACE
+#include "../gapmis.h"
+#include "../EDNAFULL.h"
+#include "../EBLOSUM62.h"
 #include "vec_unit.h"
 #include "aligned_buffer.h"
 #include "cycle.h"
@@ -724,23 +726,25 @@ private:
 };
 
 
+
+
 /* Computes the optimal semi-global alignment between t and p */
-unsigned int gapmis_one_to_one ( const char * p, const char * t, const struct gapmis_params * in, struct gapmis_align * out ) {
+unsigned int gapmis_one_to_one_sse ( const char * p, const char * t, const struct gapmis_params * in, struct gapmis_align * out ) {
     const char *px[2] = {p, 0};
     const char *tx[2] = {t, 0};
 
-    return gapmis_many_to_many( px, tx, in, out );
+    return gapmis_many_to_many_sse( px, tx, in, out );
 }
 
 /* Computes the optimal semi-global alignment between a set of texts and p */
-unsigned int gapmis_one_to_many ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
+unsigned int gapmis_one_to_many_sse ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
 
     const char *px[2] = {p, 0};
-    return gapmis_many_to_many( px, t, in, out );
+    return gapmis_many_to_many_sse( px, t, in, out );
 }
 
 /* Computes the optimal semi-global alignment between a set of factors and a set of patterns */
-unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
+unsigned int gapmis_many_to_many_sse ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
     size_t         num_t = 0;
 
     for ( const char **Tmp = t; *Tmp; ++ Tmp, ++num_t );  //Counting the number of texts
@@ -848,6 +852,122 @@ unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struc
 
     return 1;
 }
+
+
+/* Computes the optimal semi-global alignment between a set of texts and p */
+unsigned int gapmis_one_to_many_opt_sse ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
+
+    const char *px[2] = {p, 0};
+    return gapmis_many_to_many( px, t, in, out );
+}
+
+/* Computes the optimal semi-global alignment between a set of factors and a set of patterns */
+unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
+    size_t         num_t = 0;
+
+    for ( const char **Tmp = t; *Tmp; ++ Tmp, ++num_t );  //Counting the number of texts
+
+
+    // states_c controls for which sequences characters the reference profile will be generated
+    const char *states_c = in->scoring_matrix == 0 ? "ACGT" : "ARNDCQEGHILKMFPSTWYVBZX";
+
+    const size_t n_states = strlen( states_c );
+    const std::vector<char> states( states_c, states_c + n_states);
+
+    const char ** t_iter = t;
+    
+//     typedef short score_t;
+    typedef float score_t;
+    const size_t VW = 16 / sizeof(score_t);
+    
+    
+    size_t block_start = 0;
+
+    std::vector<size_t> p_sizes;
+    std::vector<const char*> p_ptrs;
+    for( const char ** p_iter = p; *p_iter != 0; ++p_iter ) {
+        p_sizes.push_back(strlen(*p_iter));
+        p_ptrs.push_back( *p_iter );
+    }
+
+    size_t len = strlen(*t_iter);
+    
+    aligner<score_t,VW> ali(len, in->scoring_matrix, states );
+    std::vector<double> max_scores( p_ptrs.size(), -std::numeric_limits<double>::infinity());
+    std::vector<size_t> max_text_idx( p_ptrs.size(), size_t(-1));
+    
+    while( true ) {
+        const char *block[VW];
+        std::fill( block, block + VW, (char *)0 );
+
+        size_t num_valid = 0;
+
+
+
+        for( size_t i = 0; i < VW; ++i ) {
+            if( * t_iter != 0 ) {
+                block[i] = *t_iter;
+                ++num_valid;
+                ++t_iter;
+
+//                std::cout << "len: " << strlen(block[i]) << "\n";
+//                if( len == size_t(-1)) {
+//                    len = strlen(block[i]);
+//                } else {
+                
+                assert( len == strlen(block[i]) );
+                
+//                }
+
+            } else {
+                block[i] = block[0];
+                assert( block[0] != 0 );
+            }
+        }
+
+        ali.reset_profile( block );
+
+        for( size_t i = 0; i != p_ptrs.size(); ++i ) {
+            ali.align( p_ptrs[i], p_sizes[i], in->max_gap );
+            ali.opt_solution( p_sizes[i], in->max_gap, in->gap_open_pen, in->gap_extend_pen );
+            
+            for( size_t j = 0; j < num_valid;++j ) {
+                double score = ali.get_out_score(j);
+                
+                if( score > max_scores[i] ) {
+                    max_scores[i] = score;
+                    max_text_idx[i] = block_start + j;
+                }
+
+                //out[i * num_t + block_start + j] = x;
+
+            }
+
+        }
+
+
+        block_start += VW;
+        if( *t_iter == 0 ) {
+            break;
+        }
+
+    }
+    //computing the rest details of the alignment with the maximum score
+    for( size_t i = 0; i != p_ptrs.size(); ++i ) {
+        
+        size_t text_idx = max_text_idx[i];
+        double score = max_scores[i];
+        
+        assert( text_idx < num_t );
+        
+        gapmis_one_to_one( p[i], t[text_idx], in, &out[i] );
+        
+    }
+    
+
+    return 1;
+}
+
 
 
 //

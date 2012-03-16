@@ -80,11 +80,11 @@ unsigned int gapmis_one_to_many_opt_gpu ( const char * p, const char const ** t,
 /* Computes the optimal semi-global alignment with the maximum score between each pattern p and all texts t */
 unsigned int gapmis_many_to_many_opt_gpu (const char const ** p, const char const ** t, const struct gapmis_params * in, struct gapmis_align * out );
 
-static cl_platform_id * get_gpu_id(int * error);
-static cl_device_id * get_dev_id(cl_platform_id * gpu_id, int * error);
-static cl_context create_context(cl_device_id * dev_id, int * error);
-static cl_command_queue create_cmd_queue (cl_device_id * dev_id, cl_context context, int * error);
-static cl_kernel load_kernel (char * name, char * kernel_name, cl_device_id * dev_id, cl_context context, int * error);
+static cl_platform_id get_gpu_id(int * error);
+static cl_device_id get_dev_id(cl_platform_id gpu_id, int * error);
+static cl_context create_context(cl_device_id dev_id, int * error);
+static cl_command_queue create_cmd_queue (cl_device_id dev_id, cl_context context, int * error);
+static cl_kernel load_kernel (char * name, char * kernel_name, cl_device_id dev_id, cl_context context, int * error);
 static cl_mem malloc_device (cl_context context, size_t size, int * error);
 static void init_device_mem_int (cl_context context, cl_command_queue cmd_queue, cl_mem dev_mem, int * mem, size_t size, int * error);
 static void init_device_mem_uint (cl_context context, cl_command_queue cmd_queue, cl_mem dev_mem, unsigned int * mem, size_t size, int * error);

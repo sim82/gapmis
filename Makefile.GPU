@@ -2,7 +2,7 @@ SRC = gapmis.c
 OBJ = $(SRC:.c=.o)
 CC  = gcc
 
-CFLAGS = -g -Wall -I$(HOME)/NVIDIA_GPU_Computing_SDK/OpenCL/common/inc/ -D_USE_GPU -msse3 -O3 -fomit-frame-pointer -funroll-loops -lOpenCL 
+CFLAGS = -g -Wall -I$(HOME)/NVIDIA_GPU_Computing_SDK/OpenCL/common/inc/ -D_USE_GPU -msse3 -O -fomit-frame-pointer -funroll-loops -lOpenCL 
 
 all: gapmis
 

@@ -1085,7 +1085,7 @@ unsigned int gapmis_one_to_many_opt_gpu ( const char * p1, const char const ** t
 
 	int err = -1;
 
-	cl_platform_id * gpu_id = get_gpu_id(&err);
+	cl_platform_id gpu_id = get_gpu_id(&err);
 	
 	if(err)
 	{	
@@ -1093,7 +1093,7 @@ unsigned int gapmis_one_to_many_opt_gpu ( const char * p1, const char const ** t
       		return ( 0 );
 	}
 
-	cl_device_id * dev_id = get_dev_id(gpu_id, &err);
+	cl_device_id dev_id = get_dev_id(gpu_id, &err);
 
 	if(err)
 	{	
@@ -1182,9 +1182,7 @@ unsigned int gapmis_one_to_many_opt_gpu ( const char * p1, const char const ** t
 			}
 		}
 	}
-	
-        free ( gpu_id );
-	free ( dev_id );
+
         free ( groupScores );
         clReleaseContext ( context );
 	clReleaseCommandQueue ( cmd_queue );
@@ -1222,7 +1220,7 @@ unsigned int gapmis_many_to_many_opt_gpu ( const char const ** p, const char con
 
 	int err = -1;
 
-	cl_platform_id * gpu_id = get_gpu_id(&err);
+	cl_platform_id  gpu_id = get_gpu_id(&err);
 	
 	if(err)
 	{	
@@ -1230,7 +1228,7 @@ unsigned int gapmis_many_to_many_opt_gpu ( const char const ** p, const char con
       		return ( 0 );
 	}
 
-	cl_device_id * dev_id = get_dev_id(gpu_id, &err);
+	cl_device_id  dev_id = get_dev_id(gpu_id, &err);
 
 	if(err)
 	{	
@@ -1320,8 +1318,6 @@ unsigned int gapmis_many_to_many_opt_gpu ( const char const ** p, const char con
 		}
 	}
 
-	free ( gpu_id );
-	free ( dev_id );
         free ( groupScores );
         clReleaseContext ( context );
 	clReleaseCommandQueue ( cmd_queue );
@@ -1855,9 +1851,9 @@ static unsigned int kernel_launch_l (cl_kernel kernel, cl_context context, cl_co
 	return 0;
 }
 
-static cl_platform_id * get_gpu_id(int * error)
+static cl_platform_id get_gpu_id(int * error)
 {
-	cl_platform_id * gpu_id = NULL;
+	cl_platform_id gpu_id = NULL;
 
 	cl_uint platforms_total=0;
 	
@@ -1879,27 +1875,52 @@ static cl_platform_id * get_gpu_id(int * error)
 
 	err = clGetPlatformIDs (platforms_total, gpu_id_vec, NULL);
 
+   // printf( "platforms: %d\n", platforms_total );
+    int i;
+    int use_platform = -1;
+    
+    
+    // choose the nvidia platform
+    for( i = 0; i < platforms_total; ++i ) {
+        char str[256];
+        
+        clGetPlatformInfo( gpu_id_vec[i], CL_PLATFORM_VENDOR, sizeof(str), str, NULL );
+        
+     //   printf( "vendor: %s\n", str );
+        
+        if( strstr( str, "NVIDIA" ) != NULL ) {
+            use_platform = i;
+            break;
+        }
+    }
+    
 	if(err!=CL_SUCCESS)
 	{	
 		*error = 1;
 		return NULL;
 	}
-	gpu_id = &gpu_id_vec[0];
+	
+	if( use_platform == -1 ) {
+        *error = 1;
+        return NULL;
+    }
+	gpu_id = gpu_id_vec[use_platform];
 
+	free( gpu_id_vec );
 	*error = 0;
 
 	return gpu_id;
 }
 
-static cl_device_id * get_dev_id(cl_platform_id * gpu_id, int * error)
+static cl_device_id get_dev_id(cl_platform_id  gpu_id, int * error)
 {
-	cl_device_id * dev_id = NULL;
+	cl_device_id dev_id = NULL;
 
 	cl_uint devices_total;
 
 	cl_int err;
 	
-	err = clGetDeviceIDs(*gpu_id, CL_DEVICE_TYPE_GPU, 0, NULL, &devices_total);
+	err = clGetDeviceIDs(gpu_id, CL_DEVICE_TYPE_GPU, 0, NULL, &devices_total);
 
 	if(err!=CL_SUCCESS)
 	{
@@ -1915,30 +1936,33 @@ static cl_device_id * get_dev_id(cl_platform_id * gpu_id, int * error)
 
 	cl_device_id * dev_id_vec = malloc(sizeof(cl_device_id) * devices_total);
 
-	err = clGetDeviceIDs(*gpu_id, CL_DEVICE_TYPE_ALL, devices_total, dev_id_vec, NULL);
+	err = clGetDeviceIDs(gpu_id, CL_DEVICE_TYPE_ALL, devices_total, dev_id_vec, NULL);
 
+    
+    
+    
 	if(err!=CL_SUCCESS)
 	{
 		*error = 1;
 		return NULL;
 	}
 
-	dev_id = &dev_id_vec[0];
+	dev_id = dev_id_vec[0];
 
+	free( dev_id_vec );
 	*error = 0;
 	return dev_id;
 }
 
-static cl_context create_context(cl_device_id * dev_id, int * error)
+static cl_context create_context(cl_device_id dev_id, int * error)
 {
 
-	const cl_device_id * const_dev_id = dev_id;
 
 	cl_context context;
 
 	cl_int err;
-
-	context = clCreateContext (0,1,const_dev_id,NULL,NULL, &err);
+    
+	context = clCreateContext (0,1, &dev_id, NULL,NULL, &err);
 
 	if(err!=CL_SUCCESS)
 	{
@@ -1950,13 +1974,13 @@ static cl_context create_context(cl_device_id * dev_id, int * error)
 	return context;
 }
 
-static cl_command_queue create_cmd_queue (cl_device_id * dev_id, cl_context context, int * error)
+static cl_command_queue create_cmd_queue (cl_device_id dev_id, cl_context context, int * error)
 {
 	cl_int err;
 
 	cl_command_queue cmd_queue;
 
-	cmd_queue = clCreateCommandQueue(context, *dev_id, 0, &err);
+	cmd_queue = clCreateCommandQueue(context, dev_id, 0, &err);
 
 	if(err!=CL_SUCCESS)
 	{
@@ -1967,7 +1991,7 @@ static cl_command_queue create_cmd_queue (cl_device_id * dev_id, cl_context cont
 	return cmd_queue;
 }
 
-static cl_kernel load_kernel (char * name, char * kernel_name, cl_device_id * dev_id, cl_context context, int * error)
+static cl_kernel load_kernel (char * name, char * kernel_name, cl_device_id dev_id, cl_context context, int * error)
 {
 	cl_kernel kernel;
 
@@ -2008,7 +2032,7 @@ static cl_kernel load_kernel (char * name, char * kernel_name, cl_device_id * de
 
 	cl_build_status status;
 
-	clGetProgramBuildInfo(program, *dev_id, CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
+	clGetProgramBuildInfo(program, dev_id, CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
 
 	if(status!=CL_BUILD_SUCCESS)
 	{

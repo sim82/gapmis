@@ -1,3 +1,16 @@
+/*
+ * Copyright (C) 2012 Simon A. Berger
+ *
+ *  This program is free software; you may redistribute it and/or modify its
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ *  for more details.
+ */
 
 #include <stdio.h>
 #include <math.h>
@@ -19,13 +32,13 @@
 #endif
 
 #define _HACK_CLEAN_NAMESPACE
-#include "../gapmis.h"
-#include "../EDNAFULL.h"
-#include "../EBLOSUM62.h"
-#include "vec_unit.h"
-#include "aligned_buffer.h"
-#include "cycle.h"
-#include "../errors.h"
+#include "gapmis.h"
+#include "EDNAFULL.h"
+#include "EBLOSUM62.h"
+#include "vec_utils/vec_unit.h"
+#include "vec_utils/aligned_buffer.h"
+#include "vec_utils/cycle.h"
+#include "errors.h"
 
 const size_t NUC_SCORING_MATRIX_SIZE = 15;
 const size_t PRO_SCORING_MATRIX_SIZE = 24;
@@ -126,7 +139,7 @@ public:
         for( size_t j = 1; j < m + 1; ++j ) {
             char pc = p[j-1];
             
-            if( pc < 0 || pc > qs_back_.size() ) {
+            if( pc < 0 || size_t(pc) > qs_back_.size() ) {
                 throw bad_char_error(pc);
             }
             size_t p_comp = qs_back_.at( p[j-1] );
@@ -266,6 +279,7 @@ public:
 
         }
     }
+#if 1
     inline vec_t total_scoring( unsigned int gap, vec_t matrix_score, double gap_open_penalty, double gap_extend_penalty )
     {
         vec_t inc;
@@ -473,7 +487,7 @@ public:
     //    aligned_buffer<score_t>::iterator result_end() {
     //        return result_.end();
     //    }
-
+#endif
     score_t get_out_score( size_t idx ) {
         assert( idx < VW );
         return out_score_[idx];
@@ -755,7 +769,7 @@ private:
 
 
 
-
+#if 0
 /* Computes the optimal semi-global alignment between t and p */
 unsigned int gapmis_one_to_one_sse ( const char * p, const char * t, const struct gapmis_params * in, struct gapmis_align * out ) {
     const char *px[2] = {p, 0};
@@ -880,7 +894,7 @@ unsigned int gapmis_many_to_many_sse ( const char ** p, const char ** t, const s
 
     return 1;
 }
-
+#endif
 
 /* Computes the optimal semi-global alignment between a set of texts and p */
 unsigned int gapmis_one_to_many_opt_sse ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
@@ -998,6 +1012,8 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
             assert( text_idx < num_t );
             
             gapmis_one_to_one( p[i], t[text_idx], in, &out[i] );
+            
+            assert( score == out[i].max_score );
             
         }
     } catch( std::bad_alloc x ) { /* in sutter we trust... LALALA my code is now exception safe LALALA */

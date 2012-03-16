@@ -3,20 +3,21 @@ OBJ = $(SRC:.c=.o)
 CC  = gcc
 
 #SRC_VEC = vec_cpu/gapmis_vec.cpp vec_cpu/main.c
-OBJ_VEC = vec_cpu/gapmis_vec.o vec_cpu/main.o
-OBJ_NTOM = vec_cpu/gapmis_vec.o vec_cpu/gapmis_ntom.o
+OBJ_VEC = gapmis_vec.o
+# OBJ_NTOM = vec_cpu/gapmis_vec.o vec_cpu/gapmis_ntom.o
 
 
-CFLAGS = -Wall -O -D_USE_SSE -g
-CXXFLAGS = -O -Wall -msse3 -I. -D_USE_SSE -g
+CFLAGS = -Wall -O2 -D_USE_SSE
+CXXFLAGS = -O2 -Wall -msse3 -I. -D_USE_SSE
+OFLAGS = -lstdc++
 #CFLAGS = -Wall -g -march=native
 #CXXFLAGS = -Wall -g -I. -march=native
 
 
 all: gapmis
 
-gapmis: $(OBJ) vec_cpu/gapmis_vec.o
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) $(OFLAGS) vec_cpu/gapmis_vec.o
+gapmis: $(OBJ) $(OBJ_VEC)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(OBJ_VEC) $(OFLAGS)
 
 # gapmis_vec: $(OBJ_VEC)
 # 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_VEC)
@@ -26,5 +27,5 @@ gapmis: $(OBJ) vec_cpu/gapmis_vec.o
 clean:
 	rm -f gapmis $(OBJ) $(OBJ_VEC) $(OBJ_NTOM) *~ 
 
-$(OBJ) : EDNAFULL.h EBLOSUM62.h gapmis.h errors.h makefile
-$(OBJ_VEC) : vec_cpu/aligned_buffer.h  vec_cpu/gapmis_vec.h vec_cpu/cycle.h vec_cpu/vec_unit.h vec_cpu/fasta.h makefile
+$(OBJ) : EDNAFULL.h EBLOSUM62.h gapmis.h errors.h makefile vec_utils/aligned_buffer.h  vec_utils/gapmis_vec.h vec_utils/cycle.h vec_utils/vec_unit.h vec_utils/fasta.h Makefile.SSE
+#$(OBJ_VEC) : vec_utils/aligned_buffer.h  vec_utils/gapmis_vec.h vec_utils/cycle.h vec_utils/vec_unit.h vec_utils/fasta.h Makefile.SSE

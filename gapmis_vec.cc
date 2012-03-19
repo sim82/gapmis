@@ -39,7 +39,7 @@
 #include "vec_utils/aligned_buffer.h"
 #include "vec_utils/cycle.h"
 #include "vec_utils/thread.h"
-#include <boost/thread.hpp>
+
 #include "errors.h"
 
 const size_t NUC_SCORING_MATRIX_SIZE = 15;
@@ -960,7 +960,7 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
         // create worker threads.
         // all data supplied to the workers, except for the wpriv[] ptrs are shared/read-only.
         std::vector<worker_private> wpriv( num_threads );
-        boost::thread_group tg;
+        thread_group tg;
         for( size_t i = 0; i < num_threads; ++i ) {
             tg.create_thread(worker<score_t, VW>(blocks, i, num_threads, len, in, p_sizes, p_ptrs, states, &wpriv[i]));
         }

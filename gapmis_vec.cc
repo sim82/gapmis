@@ -832,7 +832,7 @@ public:
             for( ; it < blocks_.end(); it += stride_ ) 
             {
                 block<VW> block = *it;
-                std::cout << "block: " << block.block_start << " " << rank_ << "\n";
+//                 std::cout << "block: " << block.block_start << " " << rank_ << "\n";
                 ali.reset_profile( block.seqs );
                 
                 for( size_t i = 0; i != p_ptrs_.size(); ++i ) {

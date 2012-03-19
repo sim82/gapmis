@@ -832,7 +832,7 @@ public:
             for( ; it < blocks_.end(); it += stride_ ) 
             {
                 block<VW> block = *it;
-//                  std::cout << "block: " << block.block_start << " " << rank_ << "\n";
+                std::cout << "block: " << block.block_start << " " << rank_ << "\n";
                 ali.reset_profile( block.seqs );
                 
                 for( size_t i = 0; i != p_ptrs_.size(); ++i ) {
@@ -892,8 +892,9 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
         const char ** t_iter = t;
         
         //     typedef short score_t;
+        const size_t vec_width = 16; // width of the vector unit in bytes. Either 16 (16bytes = 128bit = sse) or 32 (=256bit = AVX)
         typedef float score_t;
-        const size_t VW = 16 / sizeof(score_t);
+        const size_t VW = vec_width / sizeof(score_t);
         
         // copy pattern pointes to vector and pre-calculate the pattern lengths
         std::vector<size_t> p_sizes;

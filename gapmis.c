@@ -2533,7 +2533,7 @@ int main ( int argc, char * argv [] )
    in . gap_extend_pen = 0.5;
 
 ///////////////////////////////////////////////////////// SEQUENTIAL CALLS ////////////////////////////////////////////////////////////////////////
-#if 1
+#if 0
    /* ONE_TO_ONE test */
    if ( gapmis_one_to_one ( querys[0], targets[0], &in, out ) )
      {
@@ -2598,6 +2598,8 @@ int main ( int argc, char * argv [] )
 
 ///////////////////////////////////////////////////////// GPU CALLS /////////////////////////////////////////////////////////////////////////
 #ifdef _USE_SSE
+   gapmis_sse_hint_num_threads(4);
+
    /* ONE_TO_MANY_opt test */
    if ( ! ( gapmis_one_to_many_opt_sse ( querys[0], targets, &in, out ) ) )
      {

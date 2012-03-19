@@ -38,6 +38,8 @@
 #include "vec_utils/vec_unit.h"
 #include "vec_utils/aligned_buffer.h"
 #include "vec_utils/cycle.h"
+#include "vec_utils/thread.h"
+#include <boost/thread.hpp>
 #include "errors.h"
 
 const size_t NUC_SCORING_MATRIX_SIZE = 15;
@@ -769,132 +771,6 @@ private:
 
 
 
-#if 0
-/* Computes the optimal semi-global alignment between t and p */
-unsigned int gapmis_one_to_one_sse ( const char * p, const char * t, const struct gapmis_params * in, struct gapmis_align * out ) {
-    const char *px[2] = {p, 0};
-    const char *tx[2] = {t, 0};
-
-    return gapmis_many_to_many_sse( px, tx, in, out );
-}
-
-/* Computes the optimal semi-global alignment between a set of texts and p */
-unsigned int gapmis_one_to_many_sse ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
-
-    const char *px[2] = {p, 0};
-    return gapmis_many_to_many_sse( px, t, in, out );
-}
-
-/* Computes the optimal semi-global alignment between a set of factors and a set of patterns */
-unsigned int gapmis_many_to_many_sse ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
-    size_t         num_t = 0;
-
-    for ( const char **Tmp = t; *Tmp; ++ Tmp, ++num_t );  //Counting the number of texts
-
-
-    // states_c controls for which sequences characters the reference profile will be generated
-    const char *states_c = in->scoring_matrix == 0 ? "ACGT" : "ARNDCQEGHILKMFPSTWYVBZX";
-
-    const size_t n_states = strlen( states_c );
-    const std::vector<char> states( states_c, states_c + n_states);
-
-    const char ** t_iter = t;
-    
-//     typedef short score_t;
-    typedef float score_t;
-    const size_t VW = 16 / sizeof(score_t);
-    
-    
-    size_t block_start = 0;
-
-    std::vector<size_t> p_sizes;
-    std::vector<const char*> p_ptrs;
-    for( const char ** p_iter = p; *p_iter != 0; ++p_iter ) {
-        p_sizes.push_back(strlen(*p_iter));
-        p_ptrs.push_back( *p_iter );
-    }
-
-    size_t len = strlen(*t_iter);
-    
-    aligner<score_t,VW> ali(len, in->scoring_matrix, states );
-    while( true ) {
-        const char *block[VW];
-        std::fill( block, block + VW, (char *)0 );
-
-        size_t num_valid = 0;
-
-
-
-        for( size_t i = 0; i < VW; ++i ) {
-            if( * t_iter != 0 ) {
-                block[i] = *t_iter;
-                ++num_valid;
-                ++t_iter;
-
-//                std::cout << "len: " << strlen(block[i]) << "\n";
-//                if( len == size_t(-1)) {
-//                    len = strlen(block[i]);
-//                } else {
-                
-                assert( len == strlen(block[i]) );
-                
-//                }
-
-            } else {
-                block[i] = block[0];
-                assert( block[0] != 0 );
-            }
-        }
-
-        ali.reset_profile( block );
-
-        for( size_t i = 0; i != p_ptrs.size(); ++i ) {
-            ali.align( p_ptrs[i], p_sizes[i], in->max_gap );
-            ali.opt_solution( p_sizes[i], in->max_gap, in->gap_open_pen, in->gap_extend_pen );
-
-
-//            for( size_t x = 0; x < len+1; ++x ) {
-//                for( size_t y = 0; y < p_sizes[i]+1; ++y ) {
-//                    std::cout << ali.get( x, y )[0] << "\t";
-//                }
-//                std::cout << "\n";
-//            }
-
-            gapmis_align ali_out[VW];
-            for( size_t j = 0; j < num_valid;++j ) {
-                gapmis_align &x = ali_out[j];
-                memset( &x, 0, sizeof( gapmis_align ));
-
-                x.max_score = ali.get_out_score( j );
-                x.min_gap = ali.get_out_min_gap( j );
-                x.where = ali.get_out_where( j );
-
-                //out[i * num_t + block_start + j] = x;
-
-            }
-            if( !false )
-            {
-                ali.backtrace( ali_out, p_sizes[i], num_valid );
-            }
-            for( size_t j = 0; j < num_valid;++j ) {
-                out[i * num_t + block_start + j] = ali_out[j];
-            }
-
-
-        }
-
-
-        block_start += VW;
-        if( *t_iter == 0 ) {
-            break;
-        }
-
-    }
-
-
-    return 1;
-}
-#endif
 
 /* Computes the optimal semi-global alignment between a set of texts and p */
 unsigned int gapmis_one_to_many_opt_sse ( const char * p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
@@ -902,6 +778,101 @@ unsigned int gapmis_one_to_many_opt_sse ( const char * p, const char ** t, const
     const char *px[2] = {p, 0};
     return gapmis_many_to_many_opt_sse( px, t, in, out );
 }
+
+static size_t s_num_threads = 1;
+
+void gapmis_sse_hint_num_threads( size_t num ) {
+    s_num_threads = num;
+}
+
+template<size_t VW>
+struct block {
+    const char *seqs[VW];
+    size_t block_start;
+    size_t num_valid;
+};
+
+// private state per worker thread
+struct worker_private {
+    // private state
+    std::vector<double> max_scores_; //( p_ptrs.size(), -std::numeric_limits<double>::infinity());
+    std::vector<size_t> max_text_idx_; //( p_ptrs.size(), size_t(-1));
+    
+    int errno_;
+};
+
+
+// worker thread main object: keeps references to shared and private state.
+template<typename score_t, size_t VW>
+class worker {
+public:
+    worker( const std::vector<block<VW> > &blocks, size_t rank, size_t stride, size_t len, const struct gapmis_params * in, const std::vector<size_t> &p_sizes, const std::vector<const char*> &p_ptrs, const std::vector<char> &states, worker_private *priv ) 
+    : blocks_(blocks),
+      rank_(rank), 
+      stride_(stride), 
+      len_(len), 
+      in_(in), 
+      p_sizes_(p_sizes), 
+      p_ptrs_(p_ptrs), 
+      states_(states),
+      priv_(priv)
+    {
+        priv_->max_scores_.resize( p_ptrs_.size(), -std::numeric_limits<double>::infinity());
+        priv_->max_text_idx_.resize( p_ptrs_.size(), size_t(-1));
+        priv_->errno_ = 0;
+    }
+    
+    void operator()() {
+        
+        try {
+        
+            aligner<score_t,VW> ali(len_, in_->scoring_matrix, states_ );
+            
+            typename std::vector<block<VW> >::const_iterator it = blocks_.begin() + rank_;
+            for( ; it < blocks_.end(); it += stride_ ) 
+            {
+                block<VW> block = *it;
+//                  std::cout << "block: " << block.block_start << " " << rank_ << "\n";
+                ali.reset_profile( block.seqs );
+                
+                for( size_t i = 0; i != p_ptrs_.size(); ++i ) {
+                    ali.align( p_ptrs_[i], p_sizes_[i], in_->max_gap );
+                    ali.opt_solution( p_sizes_[i], in_->max_gap, in_->gap_open_pen, in_->gap_extend_pen );
+                    
+                    //                 std::cout << "align:\n";
+                    
+                    for( size_t j = 0; j < block.num_valid;++j ) {
+                        double score = ali.get_out_score(j);
+                        
+                        if( score > priv_->max_scores_[i] ) {
+                            priv_->max_scores_[i] = score;
+                            priv_->max_text_idx_[i] = block.block_start + j;
+                        }
+                        //out[i * num_t + block_start + j] = x;
+                    }
+                }
+            }
+        } catch( std::bad_alloc x ) { /* in sutter we trust... LALALA my code is now exception safe LALALA */
+            priv_->errno_ = MALLOC;
+        } catch( bad_char_error x ) {
+            priv_->errno_ = BADCHAR;
+        }
+    }
+    
+    
+private:
+    // shared read-only state
+    const std::vector<block<VW> > &blocks_;
+    const size_t rank_;
+    const size_t stride_;
+    const size_t len_;
+    const struct gapmis_params * in_;
+    const std::vector<size_t> &p_sizes_;
+    const std::vector<const char*> &p_ptrs_;
+    const std::vector<char> &states_;
+    
+    worker_private *priv_;
+};
 
 /* Computes the optimal semi-global alignment between a set of factors and a set of patterns */
 unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out ) {
@@ -924,9 +895,7 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
         typedef float score_t;
         const size_t VW = 16 / sizeof(score_t);
         
-        
-        size_t block_start = 0;
-        
+        // copy pattern pointes to vector and pre-calculate the pattern lengths
         std::vector<size_t> p_sizes;
         std::vector<const char*> p_ptrs;
         for( const char ** p_iter = p; *p_iter != 0; ++p_iter ) {
@@ -937,75 +906,97 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
         
         size_t len = strlen(*t_iter);
         
-        aligner<score_t,VW> ali(len, in->scoring_matrix, states );
-        std::vector<double> max_scores( p_ptrs.size(), -std::numeric_limits<double>::infinity());
-        std::vector<size_t> max_text_idx( p_ptrs.size(), size_t(-1));
+        
+        // generate the list of blocks
+        size_t block_start = 0;
+        std::vector<block<VW> > blocks;
         
         while( true ) {
-            const char *block[VW];
-            std::fill( block, block + VW, (char *)0 );
+            //const char *block[VW];
             
-            size_t num_valid = 0;
+            block<VW> block;
+            std::fill( block.seqs, block.seqs + VW, (char *)0 );
             
-            
+            block.num_valid = 0;
             
             for( size_t i = 0; i < VW; ++i ) {
                 if( * t_iter != 0 ) {
-                    block[i] = *t_iter;
-                    ++num_valid;
+                    block.seqs[i] = *t_iter;
+                    ++block.num_valid;
                     ++t_iter;
+
                     
-                    //                std::cout << "len: " << strlen(block[i]) << "\n";
-                    //                if( len == size_t(-1)) {
-            //                    len = strlen(block[i]);
-                    //                } else {
-                        
-                        //assert( len == strlen(block[i]) );
-                    
-                    if( len != strlen(block[i]) ) {
+                    if( len != strlen(block.seqs[i]) ) {
                         errno = TEXTLEN;
-                        
                         return 0;
                     }
                     
-                    //                }
-                    
                 } else {
-                    block[i] = block[0];
-                    assert( block[0] != 0 );
+                    block.seqs[i] = block.seqs[0];
+                    assert( block.seqs[0] != 0 );
                 }
             }
             
-            ali.reset_profile( block );
-            
-            for( size_t i = 0; i != p_ptrs.size(); ++i ) {
-                ali.align( p_ptrs[i], p_sizes[i], in->max_gap );
-                ali.opt_solution( p_sizes[i], in->max_gap, in->gap_open_pen, in->gap_extend_pen );
-                
-                for( size_t j = 0; j < num_valid;++j ) {
-                    double score = ali.get_out_score(j);
-                    
-                    if( score > max_scores[i] ) {
-                        max_scores[i] = score;
-                        max_text_idx[i] = block_start + j;
-                    }
-                    
-                    //out[i * num_t + block_start + j] = x;
-                    
-                }
-                
-            }
+            block.block_start = block_start;
+            blocks.push_back( block );
             
             
             block_start += VW;
             if( *t_iter == 0 ) {
                 break;
             }
-            
         }
+        
+        // the s_num_threads > 48 check is only meant as temporary sanity check.
+        if( s_num_threads == 0 || s_num_threads > 48 ) {
+            errno = THREADCOUNT;
+            return 0;
+        }
+        const size_t num_threads = s_num_threads;
+        //s_num_threads = 2;
+        
+        
+        // create worker threads.
+        // all data supplied to the workers, except for the wpriv[] ptrs are shared/read-only.
+        std::vector<worker_private> wpriv( num_threads );
+        boost::thread_group tg;
+        for( size_t i = 0; i < num_threads; ++i ) {
+            tg.create_thread(worker<score_t, VW>(blocks, i, num_threads, len, in, p_sizes, p_ptrs, states, &wpriv[i]));
+        }
+        
+        // wait for threads to finish
+        tg.join_all();
+
+        // check thread error states and propagate, if necessary
+        for( size_t i = 0; i < num_threads; ++i ) {
+            if( wpriv[i].errno_ != 0 ) {
+                errno = wpriv[i].errno_;
+                std::cerr << "errno set by thread " << i << ": " << wpriv[i].errno_ << "\n";
+                return 0;
+            }
+        }
+        
+        assert( !wpriv.empty() );
+        // get results fromt first thread as reference
+        std::vector<double> max_scores = wpriv.front().max_scores_; //( p_ptrs.size(), -std::numeric_limits<double>::infinity());
+        std::vector<size_t> max_text_idx = wpriv.front().max_text_idx_; //( p_ptrs.size(), size_t(-1));
+        
+        // merge result scores from threads
+        for( size_t j = 1; j < num_threads; ++j ) {
+
+            for( size_t i = 0; i < max_scores.size(); ++i ) {
+                
+                // if two threads return an equal scores (=float equality) for a pattern, choose the pattern with the lower index.
+                // this should give equivalent results to the single threaded version.
+                if( wpriv[j].max_scores_[i] > max_scores[i] || (wpriv[j].max_scores_[i] == max_scores[i] && wpriv[j].max_text_idx_[i] < max_text_idx[i] )) {
+                    max_scores[i] = wpriv[j].max_scores_[i];
+                    max_text_idx[i] = wpriv[j].max_text_idx_[i];
+                }
+            }        
+        }
+        
         //computing the rest details of the alignment with the maximum score
         for( size_t i = 0; i != p_ptrs.size(); ++i ) {
-            
             size_t text_idx = max_text_idx[i];
             double score = max_scores[i];
             
@@ -1029,52 +1020,3 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
 }
 
 
-
-//
-//void gv_init_aligner( gv_aligner_t *c_ali, int n, int matrix, char *states, int n_states ) {
-//    aligner<short,8> *ali = new aligner<short,8>( n, matrix, std::vector<char>( states, states + n_states) );
-//
-//    c_ali->cxx_aligner = ali;
-//    c_ali->vec_width = 8;
-//}
-//void gv_delete_aligner( gv_aligner_t *c_ali ) {
-//    assert( c_ali != 0 );
-//    assert( c_ali->vec_width == 8 );
-//    assert( c_ali->cxx_aligner != 0 );
-//
-//    aligner<short,8> *ali = reinterpret_cast<aligner<short,8> *> (c_ali->cxx_aligner);
-//    delete ali;
-//
-//    memset( c_ali, 0, sizeof( gv_aligner_t ));
-//
-//}
-//
-//
-//void gv_reset_text( gv_aligner_t *c_ali, char **t ) {
-//    assert( c_ali != 0 );
-//    assert( c_ali->vec_width == 8 );
-//    assert( c_ali->cxx_aligner != 0 );
-//
-//    aligner<short,8> *ali = reinterpret_cast<aligner<short,8> *> (c_ali->cxx_aligner);
-//
-//    ali->reset_profile(t);
-//}
-//
-//
-//
-//void gv_align( gv_aligner_t *c_ali, char * qs, int qs_len, int max_gap, double gap_open, double gap_extend, gv_result_t *res ) {
-//    assert( c_ali != 0 );
-//    assert( c_ali->vec_width == 8 );
-//    assert( c_ali->cxx_aligner != 0 );
-//
-//    aligner<short,8> *ali = reinterpret_cast<aligner<short,8> *> (c_ali->cxx_aligner);
-//
-//    ali->align( qs, qs_len, max_gap );
-//    ali->opt_solution( qs_len, max_gap, gap_open, gap_extend );
-//
-//    for( size_t i = 0; i < 8; ++i ) {
-//        res[i].max_score = ali->get_max_score(i);
-//    }
-//
-//
-//}

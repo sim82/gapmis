@@ -138,6 +138,7 @@ unsigned int gapmis_one_to_many_opt_sse ( const char * p, const char ** t, const
 
 /* Computes the optimal semi-global alignment between a set of factors and a set of patterns */
 unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out );
+void gapmis_sse_hint_num_threads( size_t num );
 
 #endif
 

@@ -2552,7 +2552,7 @@ int main ( int argc, char * argv [] )
    if ( gapmis_many_to_many ( querys, targets, &in, out ) )
     {
       /* MANY_TO_MANY results */
-//       results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
+      results_many_to_many ( "MANY_TO_MANY", querys, querysId, targets, targetsId, &in, out );
     }
    /* ONE_TO_ONE_scr test */
    if ( ! ( gapmis_one_to_one_scr ( querys[0], targets[0], &in, &scr ) ) )

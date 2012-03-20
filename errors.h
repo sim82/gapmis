@@ -12,8 +12,7 @@
 #define		GPUERROR	0x00000128
 #define		KERNEL		0x00000256
 #define		GPUMALLOC	0x00000512
-
-#define     TEXTLEN   0x00001024 /* texts of different length given to sse version */ 
+#define         TEXTLEN         0x00001024 /* texts of different length given to sse version */ 
 
 #endif
 

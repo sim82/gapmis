@@ -24,15 +24,15 @@
 #define         MATRIX			0x00000002
 #define         MAXGAP			0x00000004
 #define         MALLOC			0x00000008
-#define		NOGPU			0x00000016
-#define         BADCHAR			0x00000032
-#define         IO			0x00000064
-#define		GPUERROR		0x00000128
-#define		KERNEL			0x00000256
-#define		GPUMALLOC		0x00000512
-#define     	TEXTLEN   		0x00001024 /* texts of different length given to sse version */
-#define     	THREADCOUNT   		0x00002048
-#define     	UNHANDLED_INTERNAL 	0x00004096
+#define		NOGPU			0x00000020
+#define         BADCHAR			0x00000040
+#define         IO			0x00000080
+#define		GPUERROR		0x00000100
+#define		KERNEL			0x00000200
+#define		GPUMALLOC		0x00000400
+#define     	TEXTLEN   		0x00000800 /* texts of different length given to sse version */
+#define     	THREADCOUNT   		0x00001000
+#define     	UNHANDLED_INTERNAL 	0x00002000
 
 #endif
 

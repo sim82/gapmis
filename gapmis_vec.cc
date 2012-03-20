@@ -823,7 +823,7 @@ public:
     }
     
     void operator()() {
-        
+        priv_->errno_ = UNHANDLED_INTERNAL;
         try {
         
             aligner<score_t,VW> ali(len_, in_->scoring_matrix, states_ );
@@ -850,13 +850,28 @@ public:
                         }
                         //out[i * num_t + block_start + j] = x;
                     }
+                    
                 }
             }
+            
+            priv_->errno_ = 0; // only if this point is reached, there was no error.
+            
         } catch( std::bad_alloc x ) { /* in sutter we trust... LALALA my code is now exception safe LALALA */
             priv_->errno_ = MALLOC;
         } catch( bad_char_error x ) {
             priv_->errno_ = BADCHAR;
+        } catch( std::logic_error x ) {
+            std::cerr << "BUG: unhandled std::logic_error: " << x.what() << std::endl;
+            priv_->errno_ = UNHANDLED_INTERNAL;
+        } catch( std::exception x ) {
+            std::cerr << "BUG: unhandled std::exception: " << x.what() << std::endl;
+            priv_->errno_ = UNHANDLED_INTERNAL;
+        } catch(...) {
+            std::cerr << "BUG: unhandled exception of unknown type (sorry, for the useless message...)" << std::endl;
+            priv_->errno_ = UNHANDLED_INTERNAL;
         }
+        
+        
     }
     
     

@@ -15,6 +15,7 @@
 
 #define     TEXTLEN   0x00001024 /* texts of different length given to sse version */
 #define     THREADCOUNT   0x00002048
+#define     UNHANDLED_INTERNAL 0x00004096
 
 #endif
 

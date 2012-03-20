@@ -7,9 +7,9 @@ OBJ_VEC = gapmis_vec.o
 # OBJ_NTOM = vec_cpu/gapmis_vec.o vec_cpu/gapmis_ntom.o
 
 
-CFLAGS = -Wall -O2 -D_USE_SSE
-CXXFLAGS = -O2 -Wall -msse3 -I. -D_USE_SSE
-OFLAGS = -lstdc++
+CFLAGS = -Wall -O2 -D_USE_SSE -g
+CXXFLAGS = -O2 -Wall -msse3 -I. -D_USE_SSE -g
+OFLAGS = -lstdc++ -lpthread
 #CFLAGS = -Wall -g -march=native
 #CXXFLAGS = -Wall -g -I. -march=native
 

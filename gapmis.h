@@ -77,10 +77,10 @@ unsigned int gapmis_one_to_many ( const char * p, const char  ** t, const struct
 unsigned int gapmis_many_to_many ( const char ** p, const char ** t, const struct gapmis_params * in, struct gapmis_align * out );
 
 /* Creates the output file with the many to many alignments */
-unsigned int results_many_to_many ( const char * filename, const char const ** p, const char const ** p_header, const char const ** t, const char const ** t_header, const struct gapmis_params* in, struct gapmis_align* out );
+unsigned int results_many_to_many ( const char * filename, const char ** p, const char ** p_header, const char ** t, const char ** t_header, const struct gapmis_params* in, struct gapmis_align* out );
 
 /* Creates the output file with the one to many alignments */
-unsigned int results_one_to_many ( const char * filename, const char * p, const char const * p_header, const char const ** t, const char const ** t_header, const struct gapmis_params* in, struct gapmis_align* out );
+unsigned int results_one_to_many ( const char * filename, const char * p, const char * p_header, const char ** t, const char ** t_header, const struct gapmis_params* in, struct gapmis_align* out );
 
 /* Creates the output file with the one to one alignment */
 unsigned int results_one_to_one ( const char * filename, const char * p, const char * p_header, const char * t, const char * t_header, const struct gapmis_params* in, struct gapmis_align* out );

@@ -1,4 +1,4 @@
-SRC = gapmis.c
+SRC = gapmis.c main.c
 OBJ = $(SRC:.c=.o)
 CC  = gcc
 
@@ -27,5 +27,5 @@ gapmis: $(OBJ) $(OBJ_VEC)
 clean:
 	rm -f gapmis $(OBJ) $(OBJ_VEC) $(OBJ_NTOM) *~ 
 
-$(OBJ) : EDNAFULL.h EBLOSUM62.h gapmis.h errors.h makefile vec_utils/aligned_buffer.h  vec_utils/gapmis_vec.h vec_utils/cycle.h vec_utils/vec_unit.h vec_utils/fasta.h Makefile.SSE
+$(OBJ) : EDNAFULL.h EBLOSUM62.h gapmis.h errors.h vec_utils/aligned_buffer.h  vec_utils/cycle.h vec_utils/vec_unit.h Makefile.SSE
 #$(OBJ_VEC) : vec_utils/aligned_buffer.h  vec_utils/gapmis_vec.h vec_utils/cycle.h vec_utils/vec_unit.h vec_utils/fasta.h Makefile.SSE

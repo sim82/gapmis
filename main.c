@@ -242,7 +242,7 @@ int main ( int argc, char * argv [] )
 
 ///////////////////////////////////////////////////////// SSE CALLS /////////////////////////////////////////////////////////////////////////
 #ifdef _USE_SSE
-   gapmis_sse_hint_num_threads(4);
+   gapmis_sse_hint_num_threads(1);
 /*
    if ( ! ( gapmis_one_to_many_opt_sse ( querys[0], targets, &in, out ) ) )
      {

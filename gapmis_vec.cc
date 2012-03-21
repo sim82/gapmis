@@ -44,8 +44,8 @@
 
 const size_t NUC_SCORING_MATRIX_SIZE = 15;
 const size_t PRO_SCORING_MATRIX_SIZE = 24;
-const int ERR = 24;      //error number returned if char_to_index returns an invalid index
-
+// const int ERR = 24;      //error number returned if char_to_index returns an invalid index
+const static bool g_verbose = false;
 
 class bad_char_error : public std::exception {
 public:
@@ -625,8 +625,10 @@ private:
             index = 14; break;
 
           default:
+            if( g_verbose ) {
+                fprintf ( stderr, "Error: unrecognizable character in one of the dna sequences!!!\n" );
+            }
             
-            index = ERR;
             throw bad_char_error(a);
             //break;
         }
@@ -715,7 +717,9 @@ private:
             index = 23; break;
 
           default:
-            fprintf ( stderr, "Error: unrecognizable character in one of the protein sequences!!!\n" );
+            if( g_verbose ) {
+                fprintf ( stderr, "Error: unrecognizable character in one of the protein sequences!!!\n" );
+            }
             throw bad_char_error(a);
             //index = ERR; break;
         }
@@ -861,13 +865,20 @@ public:
         } catch( bad_char_error x ) {
             priv_->errno_ = BADCHAR;
         } catch( std::logic_error x ) {
-            std::cerr << "BUG: unhandled std::logic_error: " << x.what() << std::endl;
+            if( g_verbose ) {
+                std::cerr << "BUG: unhandled std::logic_error: " << x.what() << std::endl;
+            }
+            
             priv_->errno_ = UNHANDLED_INTERNAL;
         } catch( std::exception x ) {
-            std::cerr << "BUG: unhandled std::exception: " << x.what() << std::endl;
+            if( g_verbose ) {
+                std::cerr << "BUG: unhandled std::exception: " << x.what() << std::endl;
+            }
             priv_->errno_ = UNHANDLED_INTERNAL;
         } catch(...) {
-            std::cerr << "BUG: unhandled exception of unknown type (sorry, for the useless message...)" << std::endl;
+            if( g_verbose ) {
+                std::cerr << "BUG: unhandled exception of unknown type (sorry, for the useless message...)" << std::endl;
+            }
             priv_->errno_ = UNHANDLED_INTERNAL;
         }
         
@@ -987,7 +998,9 @@ unsigned int gapmis_many_to_many_opt_sse ( const char ** p, const char ** t, con
         for( size_t i = 0; i < num_threads; ++i ) {
             if( wpriv[i].errno_ != 0 ) {
                 errno = wpriv[i].errno_;
-                std::cerr << "errno set by thread " << i << ": " << wpriv[i].errno_ << "\n";
+                if( g_verbose ) {
+                    std::cerr << "errno set by thread " << i << ": " << wpriv[i].errno_ << "\n";
+                }
                 return 0;
             }
         }
